@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+*.tmp
+data/posts.jsonl
+data/metrics.jsonl
+data/swipe.jsonl
+data/conversions.csv
+drafts/queue/*.md
+drafts/approved/*.md
+drafts/published/*.md
