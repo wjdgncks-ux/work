@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#070f24" media="(prefers-color-scheme: dark)">
+<title>플레이스 자가진단 시트 | 에그글로벌</title>
+<meta name="description" content="네이버 플레이스 25개 항목을 사장님이 직접 점검하고 100점 만점으로 환산하는 무료 자가진단 시트">
+<link rel="stylesheet" href="fonts/pretendardvariable-dynamic-subset.css">
+<style>
+  /* DESIGN.md 토큰 (Notion 원본 + Egg Global Overrides)
+     Taste 다이얼: DESIGN_VARIANCE 5 / MOTION_INTENSITY 3 / VISUAL_DENSITY 4 */
+  :root {
+    --primary: #b84c00;
+    --primary-pressed: #793400;
+    --on-primary: #ffffff;
+    --accent-text: #b84c00;
+    --canvas: #ffffff;
+    --surface: #f6f5f4;
+    --raised: #ffffff;
+    --tint: #ffe8d4;
+    --hairline: #e5e3df;
+    --hairline-strong: #c8c4be;
+    --field-border: #787671;
+    --ink: #1a1a1a;
+    --charcoal: #37352f;
+    --slate: #5d5b54;
+    --r-md: 8px; --r-lg: 12px;
+    --s-xs: 8px; --s-sm: 12px; --s-md: 16px; --s-lg: 20px; --s-xl: 24px;
+    --s-xxl: 32px; --s-xxxl: 40px; --s-section-sm: 48px; --s-section: 64px; --s-section-lg: 96px;
+    --font: "Pretendard Variable", Pretendard, system-ui, -apple-system, sans-serif;
+  }
+  /* 다크 모드: DESIGN.md의 brand-navy 계열과 on-dark 토큰만 사용 */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent-text: #ffe8d4;
+      --canvas: #070f24;
+      --surface: #0a1530;
+      --raised: #0a1530;
+      --tint: #1a2a52;
+      --hairline: #1a2a52;
+      --hairline-strong: #787671;
+      --field-border: #787671;
+      --ink: #ffffff;
+      --charcoal: #ffffff;
+      --slate: #bbb8b1;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font); font-size: 16px; line-height: 1.55; color: var(--ink); background: var(--canvas); word-break: keep-all; touch-action: manipulation; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 var(--s-xl); }
+  .skip { position: absolute; left: -9999px; top: 8px; background: var(--ink); color: var(--canvas); padding: 8px 12px; border-radius: var(--r-md); }
+  .skip:focus { left: 8px; }
+  :focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+
+  header { border-bottom: 1px solid var(--hairline); }
+  header .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .logo { font-weight: 700; font-size: 18px; color: var(--ink); text-decoration: none; }
+
+  .btn { display: inline-block; font: 600 15px/1.3 var(--font); padding: 11px 20px; border-radius: var(--r-md); text-decoration: none; border: 0; cursor: pointer; white-space: nowrap; transition: background-color .15s ease, transform .1s ease; }
+  .btn-primary { background: var(--primary); color: var(--on-primary); }
+  .btn-primary:hover { background: var(--primary-pressed); }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-lg { font-size: 17px; padding: 15px 28px; }
+
+  h1 { font-size: 46px; font-weight: 700; line-height: 1.2; letter-spacing: -0.8px; margin: 0 0 var(--s-xl); text-wrap: balance; }
+  h2 { font-size: 34px; font-weight: 700; line-height: 1.25; letter-spacing: -0.5px; margin: 0 0 var(--s-lg); text-wrap: balance; }
+  h3 { font-size: 20px; font-weight: 600; line-height: 1.35; margin: 0 0 var(--s-xs); }
+  .lead { font-size: 18px; line-height: 1.6; color: var(--slate); margin: 0; max-width: 34em; }
+  section { padding: var(--s-section-lg) 0; }
+
+  /* HERO: 좌측 카피 / 우측 실제 동작하는 미니 체크시트 */
+  .hero { padding: var(--s-section-lg) 0 var(--s-section); }
+  .hero .wrap { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: var(--s-section); align-items: center; }
+  .eyebrow { font-size: 15px; font-weight: 600; color: var(--accent-text); margin: 0 0 var(--s-md); }
+  .hero .lead { margin-bottom: var(--s-xxl); }
+
+  .preview { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-lg); padding: var(--s-xxl); }
+  .preview-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--s-lg); }
+  .preview-title { font-weight: 600; }
+  .preview-note { font-size: 14px; color: var(--slate); }
+  .check { display: flex; gap: var(--s-sm); align-items: flex-start; padding: var(--s-sm) 0; border-top: 1px solid var(--hairline); cursor: pointer; }
+  .check input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--primary); flex: none; }
+  .score { margin-top: var(--s-lg); padding-top: var(--s-lg); border-top: 1px solid var(--hairline-strong); display: flex; justify-content: space-between; align-items: baseline; }
+  .score strong { font-size: 32px; font-variant-numeric: tabular-nums; color: var(--accent-text); }
+
+  /* WHAT YOU GET: 큰 셀 1 + 작은 셀 2 (비대칭) */
+  .get-grid { display: grid; grid-template-columns: 1.3fr 1fr; grid-template-rows: auto auto; gap: var(--s-xl); margin-top: var(--s-xxxl); }
+  .cell { border-radius: var(--r-lg); padding: var(--s-xxl); color: var(--charcoal); }
+  .cell p { margin: 0; color: var(--slate); }
+  .cell-big { grid-row: span 2; background: var(--tint); display: flex; flex-direction: column; justify-content: flex-end; min-height: 320px; }
+  .cell-big .num { font-size: 88px; font-weight: 700; line-height: 1; letter-spacing: -2px; color: var(--accent-text); margin-bottom: var(--s-md); font-variant-numeric: tabular-nums; }
+  .cell-line { border: 1px solid var(--hairline); }
+
+  /* WHO: 좌 제목 / 우 목록 */
+  .who { background: var(--surface); }
+  .who .wrap { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--s-section); }
+  .who ul { list-style: none; margin: 0; padding: 0; }
+  .who li { font-size: 19px; padding: var(--s-lg) 0; border-bottom: 1px solid var(--hairline); }
+  .who li:first-child { padding-top: 0; }
+
+  /* APPLY: 좌 안내 / 우 폼 */
+  #apply { scroll-margin-top: 24px; }
+  #apply .wrap { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: var(--s-section); align-items: start; }
+  .after { margin: var(--s-xl) 0 0; padding: 0; list-style: none; color: var(--slate); }
+  .after li { padding: var(--s-xs) 0; }
+  .form-box { background: var(--raised); border: 1px solid var(--hairline); border-radius: var(--r-lg); padding: var(--s-xxxl); }
+  .field { margin-bottom: var(--s-lg); }
+  .field label { display: block; font-weight: 600; margin-bottom: var(--s-xs); }
+  .field input, .field select { width: 100%; font: 16px var(--font); padding: 13px 14px; border: 1px solid var(--field-border); border-radius: var(--r-md); background-color: var(--canvas); color: var(--ink); }
+  .field input::placeholder { color: var(--slate); }
+  .field input:focus-visible, .field select:focus-visible { outline: 2px solid var(--primary); outline-offset: 0; border-color: var(--primary); }
+  .field input[aria-invalid="true"], .field select[aria-invalid="true"] { border-color: var(--primary); }
+  .error { color: var(--accent-text); font-size: 14px; margin: var(--s-xs) 0 0; }
+  .error:empty { display: none; }
+  .form-box .btn { width: 100%; }
+  .privacy { font-size: 14px; color: var(--slate); margin: var(--s-md) 0 0; }
+
+  footer { border-top: 1px solid var(--hairline); padding: var(--s-xxl) 0; color: var(--slate); font-size: 14px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .btn { transition: none; }
+    .btn-primary:active { transform: none; }
+  }
+  @media (max-width: 860px) {
+    h1 { font-size: 34px; }
+    h2 { font-size: 27px; }
+    section { padding: var(--s-section) 0; }
+    .hero { padding: var(--s-section) 0 var(--s-section-sm); }
+    .hero .wrap, .who .wrap, #apply .wrap { grid-template-columns: 1fr; gap: var(--s-xxl); }
+    .get-grid { grid-template-columns: 1fr; }
+    .cell-big { grid-row: auto; min-height: 0; }
+    .cell-big .num { font-size: 64px; }
+    .preview, .form-box { padding: var(--s-xl); }
+    .hero .btn-lg { width: 100%; text-align: center; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+<header>
+  <div class="wrap">
+    <a class="logo" href="#" translate="no">에그글로벌</a>
+    <a class="btn btn-primary" href="#apply">시트 무료로 받기</a>
+  </div>
+</header>
+
+<main id="main">
+  <div class="hero">
+    <div class="wrap">
+      <div>
+        <p class="eyebrow">네이버 플레이스 자가진단 시트</p>
+        <h1>우리 매장 플레이스, 지금 몇 점일까요</h1>
+        <p class="lead">25개 항목을 사장님이 직접 체크하면 100점 만점 점수가 자동으로 나옵니다.</p>
+        <a class="btn btn-primary btn-lg" href="#apply">시트 무료로 받기</a>
+      </div>
+
+      <!-- 실제 동작하는 미리보기. TODO: 예시 항목을 diagnostic-items.md의 실제 항목으로 교체 -->
+      <form class="preview" aria-labelledby="pv-title" onsubmit="return false">
+        <div class="preview-head">
+          <span class="preview-title" id="pv-title">직접 체크해 보세요</span>
+          <span class="preview-note">예시 4개 항목</span>
+        </div>
+        <label class="check"><input type="checkbox" name="pv"> 업체 소개글에 가게 특징이 적혀 있다</label>
+        <label class="check"><input type="checkbox" name="pv"> 대표 사진이 최근 6개월 안에 바뀌었다</label>
+        <label class="check"><input type="checkbox" name="pv"> 영업시간과 휴무일이 실제와 같다</label>
+        <label class="check"><input type="checkbox" name="pv"> 최근 한 달 안에 리뷰에 답글을 달았다</label>
+        <div class="score">
+          <span>체크한 항목</span>
+          <strong id="pv-score" aria-live="polite">0 / 4</strong>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <h2>시트를 받으면 알 수 있는 것</h2>
+      <div class="get-grid">
+        <div class="cell cell-big">
+          <div class="num">100점</div>
+          <h3>우리 매장 플레이스 점수</h3>
+          <p>25개 항목에 체크만 하면 점수가 자동으로 계산됩니다.</p>
+        </div>
+        <div class="cell cell-line">
+          <h3>빠진 항목</h3>
+          <p>기본 정보, 사진, 리뷰, 예약 중 어디가 비어 있는지 한눈에 보입니다.</p>
+        </div>
+        <div class="cell cell-line">
+          <h3>먼저 볼 곳</h3>
+          <p>점수가 낮게 나온 항목부터 손보면 됩니다.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="who">
+    <div class="wrap">
+      <h2>이런 사장님께 맞습니다</h2>
+      <ul>
+        <li>플레이스 순위가 안 오르는데 이유를 모르겠다</li>
+        <li>리뷰 이벤트를 해도 되는지 헷갈린다</li>
+        <li>대행사에 맡기기 전에 우리 매장 상태부터 알고 싶다</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="apply">
+    <div class="wrap">
+      <div>
+        <h2>시트 받기</h2>
+        <p class="lead">5개 칸만 채우면 됩니다.</p>
+        <ul class="after">
+          <li>1. 입력한 연락처로 시트를 보내 드립니다</li>
+          <li>2. 시트에 체크하면 점수가 바로 나옵니다</li>
+          <li>3. 상담은 원하실 때만 진행합니다</li>
+        </ul>
+      </div>
+      <form class="form-box" id="lead-form" action="#" method="post" novalidate>
+        <div class="field">
+          <label for="f-industry">업종</label>
+          <input id="f-industry" name="industry" type="text" autocomplete="off" required aria-describedby="e-industry" placeholder="예: 카페, 미용실, 필라테스…">
+          <p class="error" id="e-industry" aria-live="polite"></p>
+        </div>
+        <div class="field">
+          <label for="f-area">지역</label>
+          <input id="f-area" name="area" type="text" autocomplete="address-level3" required aria-describedby="e-area" placeholder="예: 성수동, 강남역…">
+          <p class="error" id="e-area" aria-live="polite"></p>
+        </div>
+        <div class="field">
+          <label for="f-channels">플레이스 / 블로그 / 인스타 주소</label>
+          <input id="f-channels" name="channels" type="text" inputmode="url" autocomplete="url" spellcheck="false" required aria-describedby="e-channels" placeholder="예: naver.me/xxxx (가진 것만)…">
+          <p class="error" id="e-channels" aria-live="polite"></p>
+        </div>
+        <div class="field">
+          <label for="f-revenue">월 매출 규모</label>
+          <select id="f-revenue" name="revenue" required aria-describedby="e-revenue">
+            <option value="" disabled selected>선택해 주세요</option>
+            <option value="under-10m">1천만 원 미만</option>
+            <option value="10m-30m">1천만~3천만 원</option>
+            <option value="30m-50m">3천만~5천만 원</option>
+            <option value="over-50m">5천만 원 이상</option>
+          </select>
+          <p class="error" id="e-revenue" aria-live="polite"></p>
+        </div>
+        <div class="field">
+          <label for="f-contact">연락처</label>
+          <input id="f-contact" name="contact" type="text" autocomplete="tel" spellcheck="false" required aria-describedby="e-contact" placeholder="카카오톡 ID 또는 010-0000-0000…">
+          <p class="error" id="e-contact" aria-live="polite"></p>
+        </div>
+        <button class="btn btn-primary btn-lg" type="submit">시트 무료로 받기</button>
+        <!-- TODO: 개인정보 수집·이용 동의 문구와 처리방침 링크 추가 (개인정보 보호법 제15조) -->
+        <p class="privacy">입력한 정보는 시트 발송과 상담 안내에만 씁니다.</p>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">© <span translate="no">에그글로벌</span></div>
+</footer>
+
+<script>
+  // 미리보기 점수
+  var pv = document.querySelectorAll('input[name="pv"]');
+  var out = document.getElementById('pv-score');
+  pv.forEach(function (el) {
+    el.addEventListener('change', function () {
+      var n = 0; pv.forEach(function (x) { if (x.checked) n++; });
+      out.textContent = n + ' / ' + pv.length;
+    });
+  });
+
+  // 신청 폼 검증. TODO: action="#"을 실제 구글폼/웹훅 주소로 교체 (03-funnel.md 2-2장)
+  document.getElementById('lead-form').addEventListener('submit', function (e) {
+    var first = null;
+    this.querySelectorAll('[required]').forEach(function (el) {
+      var err = document.getElementById('e-' + el.id.slice(2));
+      var bad = !el.value.trim();
+      el.setAttribute('aria-invalid', bad ? 'true' : 'false');
+      err.textContent = bad ? '이 칸을 채워 주세요. 모르면 "없음"이라고 적어도 됩니다.' : '';
+      if (bad && !first) first = el;
+    });
+    if (first) { e.preventDefault(); first.focus(); }
+  });
+</script>
+</body>
+</html>
