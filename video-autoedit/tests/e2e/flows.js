@@ -186,6 +186,7 @@ async function layout(page, where, selectors) {
     await page.click('#side [data-page="settings"]');
     await page.waitForSelector(".chk");
     check("설정·점검 화면", (await page.$$(".chk")).length >= 6);
+    await shot(page, "07-settings");
     await layout(page, "설정 화면", ["#sSave"]);
   } catch (e) {
     check("흐름 중단 없이 끝까지 진행", false, e.message.split("\n")[0]);

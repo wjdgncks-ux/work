@@ -14,6 +14,11 @@
 이 프로그램은 **각자 PC에 설치해서 쓰는 방식**이다. 영상은 PC 밖으로 나가지 않는다.
 외부로 나가는 것은 선택 기능뿐이다: Claude(편집 기획·대본)에 보내는 글. AI 음성·내 목소리는 같은 PC의 VoiceStudio 앱이 만든다(밖으로 안 나감).
 
+**받는 방법**: 담당자가 보낸 `shortform-editor.zip`을 `C:\`에 풀거나, GitHub에서
+[이 브랜치 ZIP](https://github.com/wjdgncks-ux/work/archive/refs/heads/claude/kind-pascal-w0102p.zip)을 받아 그 안의
+`video-autoedit` 폴더를 쓴다. **인쇄용 설치 안내문(A4 한 장)**: `install-guide.pdf` (원본 `docs/install-guide.src.html`,
+다시 만들기 `python docs/build_install_guide.py`).
+
 | | Windows | Mac |
 |---|---|---|
 | 1. 준비 | python.org에서 Python 설치(첫 화면 **Add python.exe to PATH** 체크) | brew.sh에서 Homebrew 설치 |

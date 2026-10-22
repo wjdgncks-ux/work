@@ -4,8 +4,12 @@ cd /d "%~dp0"
 echo ================================================
 echo   숏폼 편집기 설치 (처음 한 번만)
 echo ================================================
-where python >nul 2>nul
-if errorlevel 1 (
+rem 'where python'은 Microsoft Store 바로가기(설치 안 된 가짜 python)도 찾으므로, 실제로 실행되는지로 확인한다.
+rem python.org 설치본에 딸린 py 실행기를 먼저 쓴다(PATH 체크를 빠뜨려도 동작).
+set "PY="
+py -3 --version >nul 2>nul && set "PY=py -3"
+if not defined PY (python --version >nul 2>nul && set "PY=python")
+if not defined PY (
   echo [!] Python이 없습니다.
   echo     https://www.python.org/downloads/ 에서 설치하고
   echo     설치 첫 화면의 "Add python.exe to PATH" 를 꼭 체크하세요.
@@ -22,7 +26,7 @@ if errorlevel 1 (
   pause
   exit /b 0
 )
-if not exist ".venv" python -m venv .venv
+if not exist ".venv" %PY% -m venv .venv
 call ".venv\Scripts\activate.bat"
 python -m pip install --upgrade pip >nul
 pip install -r requirements.txt

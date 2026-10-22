@@ -1,0 +1,194 @@
+<title>숏폼 편집기 설치 안내</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+/* 레이아웃: A4 한 장(인쇄) = 머리말 + 6단계 2열 격자 + 문제 해결·Mac·담당자 띠. 화면에서는 같은 종이를 가운데 놓고, 좁으면 1열 */
+:root {
+  --paper: #fdfefe; --desk: #e9eef1; --ink: #14212b; --muted: #566673; --line: #d3dce2;
+  --accent: #00838a; --accent-soft: #e2f3f4; --warn: #b4410e; --warn-soft: #fbece4; --chip: #f0f4f6;
+  --f-head: "IBM Plex Sans KR", "Noto Sans KR", "Noto Sans CJK KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --f-body: "Noto Sans KR", "Noto Sans CJK KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #121a20; --desk: #0b1014; --ink: #e4ebf0; --muted: #9aabb8; --line: #2a3742;
+  --accent: #3cc7cd; --accent-soft: #10303a; --warn: #ff9a6b; --warn-soft: #3a2118; --chip: #1b252d; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --paper: #121a20; --desk: #0b1014; --ink: #e4ebf0; --muted: #9aabb8; --line: #2a3742;
+  --accent: #3cc7cd; --accent-soft: #10303a; --warn: #ff9a6b; --warn-soft: #3a2118; --chip: #1b252d; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--desk); color: var(--ink); font: 400 13px/1.5 var(--f-body); margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px }
+.sheet { max-width: 210mm; margin: 0 auto; background: var(--paper); border: 1px solid var(--line); border-radius: 6px;
+  padding: 9mm 9mm 8mm; display: flex; flex-direction: column; gap: 10px }
+h1, h2, h3 { font-family: var(--f-head); margin: 0; text-wrap: balance }
+h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em }
+.top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap;
+  padding-bottom: 8px; border-bottom: 2px solid var(--ink) }
+.top p { margin: 2px 0 0; color: var(--muted) }
+.need { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 330px }
+.need span { background: var(--chip); border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; font-size: 11px; white-space: nowrap }
+.steps { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
+.step { border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px 9px; display: flex; flex-direction: column; gap: 4px; min-width: 0 }
+.step header { display: flex; align-items: baseline; gap: 8px }
+.no { font: 700 13px/1 var(--f-head); color: var(--paper); background: var(--accent); border-radius: 3px; padding: 3px 6px }
+.step h2 { font-size: 14.5px; font-weight: 700 }
+.meta { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap }
+ol, ul { margin: 0; padding-left: 17px }
+li { margin: 1px 0 }
+li::marker { color: var(--accent); font-weight: 700 }
+code, .file { font: 500 11.5px/1.3 var(--f-mono); background: var(--chip); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; white-space: nowrap }
+b { font-weight: 700 }
+.btn { font-weight: 700; color: var(--accent) }
+.body a { overflow-wrap: anywhere }
+.body { display: grid; grid-template-columns: minmax(0, 1fr) 40%; gap: 8px; align-items: start }
+.shot { margin: 0; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--desk) }
+.shot img { display: block; width: 100%; height: auto }
+.shot figcaption { font-size: 10.5px; color: var(--muted); padding: 2px 6px; border-top: 1px solid var(--line); background: var(--paper) }
+.warn { background: var(--warn-soft); color: var(--warn); border-radius: 3px; padding: 3px 7px; font-size: 11.5px }
+.warn b { color: inherit }
+.bottom { display: grid; grid-template-columns: 1.55fr 1fr; gap: 8px }
+.box { border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; min-width: 0 }
+.box h3 { font-size: 13px; margin-bottom: 4px }
+table { width: 100%; border-collapse: collapse; font-size: 11.5px }
+th, td { text-align: left; vertical-align: top; padding: 3px 4px; border-top: 1px solid var(--line) }
+th { font-weight: 500; width: 46%; font-family: var(--f-head) }
+.side { display: flex; flex-direction: column; gap: 8px }
+.sign { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: end; font-size: 12px }
+.sign i { border-bottom: 1px solid var(--muted); height: 16px }
+.foot { color: var(--muted); font-size: 10.5px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap }
+a { color: var(--accent) }
+@media (max-width: 640px) {
+  .steps, .bottom, .body { grid-template-columns: 1fr }
+  .sheet { padding: 14px }
+  .need { justify-content: flex-start }
+}
+@page { size: A4; margin: 7mm }
+@media print {
+  :root { --paper: #fff; --desk: #fff; --ink: #111; --muted: #4b5a66; --line: #c9d2d9; --accent: #00747a; --chip: #f1f4f6; --warn: #a63a0b; --warn-soft: #fbece4; --accent-soft: #e2f3f4; color-scheme: light }
+  body { padding: 0; font-size: 11.2px; background: #fff }
+  .sheet { border: 0; padding: 0; max-width: none; gap: 7px }
+  h1 { font-size: 19px }
+  .step h2 { font-size: 12.5px }
+  .step { padding: 6px 8px 7px; break-inside: avoid }
+  code, .file { font-size: 9.6px }
+  table, .warn { font-size: 9.8px }
+  .meta, .need span, .shot figcaption, .foot { font-size: 9.2px }
+}
+</style>
+
+<article class="sheet">
+  <div class="top">
+    <div>
+      <h1>숏폼 편집기 설치 안내</h1>
+      <p>Windows 10·11 기준 · PC마다 처음 한 번 · 순서대로 따라 하면 됩니다</p>
+    </div>
+    <div class="need" aria-label="준비물">
+      <span>인터넷</span><span>여유 공간 15GB 이상</span><span>NVIDIA 그래픽카드 권장</span><span>받은 파일 <b>shortform-editor.zip</b></span>
+    </div>
+  </div>
+
+  <div class="steps">
+    <section class="step">
+      <header><span class="no">1</span><h2>Python 설치</h2><span class="meta">편집기를 돌리는 기본 프로그램</span></header>
+      <ol>
+        <li><a href="https://www.python.org/downloads/windows/">python.org/downloads/windows</a> 에서 <b>Python 3.13.x</b>의 <b>Windows installer (64-bit)</b> 받기</li>
+        <li>설치 첫 화면 맨 아래 <b>Add python.exe to PATH</b> 체크 → <span class="btn">Install Now</span></li>
+        <li>"Setup was successful"이 나오면 닫기</li>
+      </ol>
+    </section>
+
+    <section class="step">
+      <header><span class="no">2</span><h2>편집기 파일 풀기</h2><span class="meta">폴더 위치가 중요</span></header>
+      <ol>
+        <li>받은 <span class="file">shortform-editor.zip</span> 우클릭 → <b>모두 압축 풀기</b></li>
+        <li>풀 위치를 <span class="file">C:\</span> 로 지정 → <span class="file">C:\shortform-editor</span> 폴더가 생김</li>
+        <li>바탕화면·문서 폴더는 피하기(OneDrive 동기화 때문에 설치 오류가 날 수 있음)</li>
+      </ol>
+    </section>
+
+    <section class="step">
+      <header><span class="no">3</span><h2>편집기 설치</h2><span class="meta">자동 진행 · 창을 닫지 말 것</span></header>
+      <ol>
+        <li>폴더 안 <span class="file">install-windows.bat</span> 더블클릭</li>
+        <li>파란 창 <b>"Windows의 PC 보호"</b>가 뜨면 <span class="btn">추가 정보</span> → <span class="btn">실행</span></li>
+        <li>"ffmpeg 설치가 끝났으면… 한 번 더 더블클릭" 이 나오면 창을 닫고 <b>한 번 더</b> 더블클릭</li>
+        <li><b>"설치가 끝났습니다"</b> 가 보이면 아무 키나 눌러 닫기</li>
+      </ol>
+    </section>
+
+    <section class="step">
+      <header><span class="no">4</span><h2>AI 음성 앱 VoiceStudio 설치</h2><span class="meta">무료 · 첫 실행이 가장 오래 걸림</span></header>
+      <div class="body">
+      <ol>
+        <li><a href="https://github.com/debpalash/VoiceStudio/releases/latest">github.com/debpalash/VoiceStudio/releases</a> 에서 이름이 <span class="file">…-win-x64.exe</span> 로 끝나는 파일 받아 설치</li>
+        <li>첫 실행 때 필요한 구성요소를 스스로 내려받음 → 끝날 때까지 기다리기</li>
+        <li><b>Settings → Models → TTS</b> → <b>VoxCPM2</b> 설치 → 라이선스 <span class="btn">Accept</span></li>
+        <li><b>Settings → Models → ASR</b> → <b>Whisper</b> 하나 설치(나레이션 자막 타이밍용)</li>
+      </ol>
+      <figure class="shot"><img src="{{IMG_MODELS}}" alt="VoiceStudio Settings 화면의 Models 메뉴와 TTS·ASR 항목"><figcaption>VoiceStudio Settings → Models: TTS와 ASR</figcaption></figure>
+      </div>
+      <div class="warn"><b>OmniVoice(VoiceStudio TTS)</b>는 비상업용 모델입니다. 회사·광고·수익 채널 영상에는 VoxCPM2를 씁니다.</div>
+    </section>
+
+    <section class="step">
+      <header><span class="no">5</span><h2>첫 실행 · 점검</h2><span class="meta">설정은 한 번만</span></header>
+      <div class="body">
+      <ol>
+        <li><span class="file">start-windows.bat</span> 우클릭 → <b>보내기 → 바탕 화면에 바로 가기 만들기</b></li>
+        <li>바로가기 실행 → 브라우저에 시작 화면이 열림</li>
+        <li>왼쪽 <b>설정·점검</b> → 작업자 이름 입력 → <span class="btn">저장</span></li>
+        <li>점검 목록이 ✓ 인지 확인. AI 음성 줄: <b>"연결됨 · VoxCPM2"</b></li>
+      </ol>
+      <figure class="shot"><img src="{{IMG_SETTINGS}}" alt="숏폼 편집기 설정·점검 화면의 설치 점검 목록"><figcaption>설정·점검: ✓ 정상 · – 선택 항목(없어도 편집 가능)</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="step">
+      <header><span class="no">6</span><h2>매일 쓰는 순서</h2><span class="meta">설치 후에는 이것만</span></header>
+      <div class="body">
+      <ol>
+        <li><b>VoiceStudio</b>를 먼저 켜기(AI 음성을 쓸 때)</li>
+        <li>바탕화면 <b>숏폼 편집기</b> 바로가기 실행</li>
+        <li>검은 창은 <b>닫지 않기</b>(닫으면 편집기가 꺼짐, 작은 창으로 내려 두기)</li>
+        <li>영상을 끌어다 놓기 → 채널·영상 종류 고르기 → <span class="btn">자동 편집 시작</span></li>
+      </ol>
+      <figure class="shot"><img src="{{IMG_VOICE}}" alt="편집기 음성 탭에서 VoiceStudio 연결됨과 VoxCPM2 엔진이 보이는 모습"><figcaption>편집기 '음성' 탭: "VoiceStudio 연결됨 · VoxCPM2"면 정상</figcaption></figure>
+      </div>
+    </section>
+  </div>
+
+  <div class="bottom">
+    <section class="box">
+      <h3>이럴 때는</h3>
+      <table>
+        <tr><th>"Python이 없습니다"</th><td>1번을 다시. PATH 체크를 확인하고 PC를 재시작한 뒤 3번</td></tr>
+        <tr><th>설치 창에 "실패"가 뜨고 멈춤</th><td>인터넷 연결 확인 후 <span class="file">install-windows.bat</span> 다시 실행</td></tr>
+        <tr><th>'음성' 탭 "VoiceStudio가 꺼져 있습니다"</th><td>VoiceStudio 실행 → 편집기에서 <span class="btn">다시 연결</span></td></tr>
+        <tr><th>"엔진이 설치되지 않았습니다" · "라이선스를 수락하세요"</th><td>4번의 TTS → VoxCPM2 설치·Accept</td></tr>
+        <tr><th>자막이 나레이션과 조금 어긋남</th><td>4번의 ASR → Whisper 설치</td></tr>
+        <tr><th>화면이 안 열림</th><td>검은 창의 글을 사진으로 찍어 담당자에게</td></tr>
+      </table>
+    </section>
+    <div class="side">
+      <section class="box">
+        <h3>Mac을 쓴다면</h3>
+        <ul>
+          <li>M1~M4 칩 Mac만 AI 음성 가능(Intel Mac은 불가)</li>
+          <li>설치 <span class="file">install-mac.command</span>, 실행 <span class="file">start-mac.command</span>. 처음엔 우클릭 → 열기</li>
+          <li>VoiceStudio는 <span class="file">…-mac-arm64.dmg</span></li>
+        </ul>
+      </section>
+      <section class="box">
+        <h3>꼭 지킬 것</h3>
+        <ul>
+          <li>다른 사람 목소리 복제는 <b>본인 동의</b>를 받은 뒤에만</li>
+          <li>AI 음성 영상의 'AI 음성' 표시를 끄지 않기</li>
+        </ul>
+      </section>
+      <div class="sign"><span>담당자</span><i></i><span>연락처</span><i></i></div>
+    </div>
+  </div>
+  <div class="foot"><span>숏폼 편집기 · 설치 안내 v1 (2026-10)</span><span>자세한 설명: 프로그램 폴더의 README.md</span></div>
+</article>
