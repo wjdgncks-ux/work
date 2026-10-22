@@ -9,14 +9,26 @@
             대표프레임/음성인식          자료화면·캡션 기획           줌 보충·과밀 제거         규정·사실검증 플래그        자막·효과음·BGM덕킹·-14LUFS
 ```
 
-## 설치
+## 설치 (각 PC에 한 번)
+
+이 프로그램은 **내 PC에 설치해서 쓰는 방식**이다. 영상은 PC 밖으로 나가지 않고, 외부로 나가는 것은 선택 기능뿐이다:
+Claude(편집 기획·대본)와 ElevenLabs(AI 음성·목소리 복제)에 보내는 텍스트·음성 샘플.
+
+| 준비물 | Windows | Mac |
+|---|---|---|
+| Python 3.11+ | python.org 설치 파일(“Add to PATH” 체크) | `brew install python` |
+| ffmpeg | `winget install Gyan.FFmpeg` | `brew install ffmpeg` |
+| 한글 폰트 | 기본 포함(맑은 고딕 등 → 프로필 `font` 지정) | 기본 포함 |
 
 ```bash
-# ffmpeg 6.x (libass 포함) + 한글 폰트 (예: Ubuntu)
-sudo apt install ffmpeg fonts-noto-cjk
+git clone <저장소> && cd video-autoedit
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY=...   # 선택: 없으면 규칙 기반 기획으로 동작
+python -m autoedit settings --elevenlabs-key <키>      # 선택: AI 음성
+export ANTHROPIC_API_KEY=...                           # 선택: Claude 기획·대본(없으면 규칙 기반)
 ```
+
+음성 인식(자동 캡션)은 첫 실행 때 Whisper 모델을 내려받는다(인터넷 필요, 이후 오프라인 동작).
 
 ## 사용법
 
@@ -93,6 +105,29 @@ python -m autoedit profiles                           # 프로필 목록
 
 CapCut과 다른 점(아직 없음): 화면 전환 효과(디졸브 등), 필터·색보정, 키프레임 애니메이션, 텍스트 글꼴·위치 자유 배치
 (텍스트 위치·크기는 플랫폼 안전영역 기준으로 자동). 텍스트·효과는 영상 내용에 붙어 있어서 클립을 옮기면 같이 움직인다.
+
+### 음성 — 자동 캡션 · 나레이션 · AI 음성 · 내 목소리
+
+| 기능 | 방법 | 엔진 |
+|---|---|---|
+| 영상 속 음성 → 자막 | 자동 편집 때 자동, 편집기 '캡션' 탭 **자동 캡션** | Whisper(내 PC) |
+| 나레이션 + 자막 | '음성' 탭에 문장 입력 → **재생 위치에 추가**. 자막은 음성의 단어 타이밍에 맞춰 자동 생성 | ElevenLabs |
+| AI 대본 | '음성' 탭 **대본 작성** → 줄별 수정 → **전체 음성 생성** | Claude(없으면 화면 문구로 초안) |
+| 텍스트 → 음성 | 텍스트 카드 선택 → '텍스트 음성 변환' 탭 → 읽기 | ElevenLabs |
+| AI 음성 | 엔진의 기본 제공 목소리 목록에서 선택(미리 듣기) | ElevenLabs |
+| 인물 지정 음성(여러 개) | '음성' 탭 **새 목소리 만들기** → 브라우저에서 녹음 또는 파일 → 동의 체크 → 만들기 | ElevenLabs Instant Voice Cloning |
+
+- 나레이션 동안 원본 소리: 줄이기(약 −14dB)/끄기/유지, 볼륨, 자막 표시 여부를 나레이션마다 지정
+- 나레이션이 겹치면 타임라인에서 줄이 나뉘고, 진단이 경고한다
+- 같은 문장·목소리는 다시 만들지 않는다(요금 절약, 프로젝트 `narration/` 캐시)
+- 명령행: `python -m autoedit voices list|stock|clone|say|delete`
+
+**동의와 표시(필수)**
+- 목소리 복제는 **목소리 주인의 동의**가 있어야 만들 수 있게 막아 두었다(동의 기록이 목소리 정보에 남는다).
+- AI 음성이 들어간 영상에는 화면에 'AI 음성' 표시가 자동으로 들어간다.
+  인공지능기본법(2026-01-22 시행)의 생성형 AI 결과물 표시 의무에 맞춘 것이다. 시행 초기에는 과태료 계도기간이다.
+  음성에 대한 구체적인 표시 방식은 과기정통부 「인공지능 투명성 확보 가이드라인」 원문으로 확인할 것.
+- 업로드 때 플랫폼의 AI 생성 콘텐츠 표시(YouTube '변경되거나 합성된 콘텐츠' 등)도 체크한다.
 
 | 기능 | 동작 |
 |---|---|

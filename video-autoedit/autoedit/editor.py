@@ -14,6 +14,15 @@ API
   POST /api/transcript {index, sentences} 캡션(대사) 수정
   POST /api/import?kind=media|asset&name= 파일 가져오기(본문=파일)
   POST /api/render {plan, preview}        내보내기(백그라운드)
+  POST /api/transcribe {index}            자동 캡션(음성 인식)
+  POST /api/settings {elevenlabs_key}     음성 엔진 키 저장(~/.autoedit)
+  GET  /api/voices/stock                  AI 음성 목록
+  POST /api/voices/sample?ext=webm        녹음·파일 샘플 업로드(본문=파일)
+  POST /api/voices/clone {name, samples, consent}  인물 지정 음성 만들기
+  POST /api/voices/delete {id}
+  POST /api/voices/preview {voice, text}  미리 듣기
+  POST /api/narration {text, voice, voice_name, source, t, original}  나레이션 음성 생성
+  POST /api/narration/draft {plan, instruction}                     AI 대본 초안
   GET  /api/render/status
   GET  /media/source/<i> · /media/thumbs/<i> · /media/sfx/<종류> · /media/asset/<파일명>
   GET  /media/output?preview=0|1[&download=1]
@@ -37,14 +46,16 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from pydantic import ValidationError
 
+from . import settings, voice
 from .media import ffmpeg, probe
+from .narration import create_narration, draft_script
 from .pacing import fill_static_gaps
 from .plan import EditPlan
 from .planner_heuristic import attach_assets, plan_heuristic
 from .project import Project, finalize
 from .sfx import RECIPES, ensure_sfx
 from .styles import STYLES
-from .transcribe import Sentence, Transcript, Word
+from .transcribe import Sentence, Transcript, Word, transcribe
 
 STATIC = Path(__file__).parent / "editor_static"
 CHUNK = 1 << 16
@@ -91,6 +102,14 @@ def ensure_thumbs(video: Path, duration: float, aspect: float, workdir: Path) ->
     return meta
 
 
+def _whisper_available() -> bool:
+    try:
+        import faster_whisper  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _llm_ready() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
 
@@ -107,6 +126,8 @@ class EditorState:
         self.sfx_files = ensure_sfx(self.project.pdir / "_sfx", self._path("sfx_dir"))
         self.lock = threading.Lock()
         self.job: dict = {"state": "idle"}
+        self.voices = voice.VoiceStore()
+        self._stock: list[dict] | None = None
 
     def _path(self, key: str) -> Path | None:
         v = self.project.meta.get("render", {}).get(key)
@@ -172,6 +193,12 @@ class EditorState:
             "sfx": [{"kind": k, "label": SFX_LABEL[k], "len": SFX_LEN[k], "url": f"/media/sfx/{k}"} for k in RECIPES],
             "outputs": outputs,
             "diagnosis": self.diagnosis(plan),
+            "voice": {
+                "ready": voice.engine_ready(),
+                "mine": [{"id": v.id, "name": v.name, "voice": v.voice, "kind": v.kind, "note": v.note,
+                          "created": v.created} for v in self.voices.list()],
+                "whisper": _whisper_available(),
+            },
         }
 
     # ---------- 동작 ----------
@@ -195,6 +222,45 @@ class EditorState:
         new.sort(key=lambda s: s.start)
         lang = a.transcript.language if a.transcript else "ko"
         self.project.save_transcript(index, Transcript(lang, new))
+
+    def stock_voices(self) -> list[dict]:
+        if self._stock is None:
+            self._stock = voice.get_engine().stock_voices()
+        return self._stock
+
+    def narration(self, d: dict) -> dict:
+        nar = create_narration(self.project.pdir, str(d["text"]), str(d["voice"]), str(d.get("voice_name", "")),
+                               int(d["source"]), float(d["t"]), original=d.get("original", "duck"))
+        return nar.model_dump()
+
+    def preview_voice(self, v: str, text: str) -> str:
+        info = voice.synthesize(text or "안녕하세요. 이 목소리로 나레이션을 읽어 드릴게요.", v,
+                                self.project.pdir / "narration")
+        return f"/media/narration/{info['file']}"
+
+    def clone(self, name: str, samples: list[str], consent: str) -> None:
+        root = (self.voices.root / "samples").resolve()
+        paths = [Path(p).resolve() for p in samples]
+        if any(root not in p.parents or not p.exists() for p in paths):  # 업로드한 샘플만 허용
+            raise ValueError("샘플 경로가 올바르지 않습니다")
+        voice.create_clone(name.strip() or "내 목소리", paths, consent, store=self.voices)
+
+    def delete_voice(self, vid: str) -> None:
+        prof = self.voices.remove(vid)
+        if prof and prof.kind == "clone" and voice.engine_ready():
+            try:
+                voice.get_engine().delete(prof.voice.partition(":")[2])
+            except voice.VoiceError:
+                pass  # 엔진 쪽 삭제 실패는 목록 삭제를 막지 않는다
+
+    def auto_captions(self, index: int) -> None:
+        a = self.project.analyses[index]
+        if not _whisper_available():
+            raise ValueError("음성 인식(faster-whisper)이 설치되지 않았습니다: pip install faster-whisper")
+        tr = transcribe(a.path, self.whisper_model or "small", self.project.meta.get("language", "ko"))
+        if tr is None:
+            raise ValueError("음성 인식 모델을 불러오지 못했습니다(첫 실행은 인터넷 연결 필요)")
+        self.project.save_transcript(index, tr)
 
     def replan(self, style: str) -> None:
         """현재 원본 전체로 새 기획을 만들고, 무음 컷을 클립으로 확정한다."""
@@ -356,11 +422,18 @@ def make_handler(st: EditorState):
                 if path == "/media/output":
                     preview = q.get("preview", ["0"])[0] == "1"
                     return self._file(st.project.output_path(preview), download="download" in q)
+                if path == "/api/voices/stock":
+                    return self._json({"voices": st.stock_voices()})
+                if path.startswith("/media/narration/"):
+                    name = Path(path.rsplit("/", 1)[1]).name
+                    return self._file(st.project.pdir / "narration" / name)
                 if path.startswith("/media/asset/"):
                     d = st._path("assets")
                     name = Path(path.rsplit("/", 1)[1]).name  # 경로 탈출 방지
                     return self._file(d / name if d else None)
                 return self._error("없는 경로", HTTPStatus.NOT_FOUND)
+            except voice.VoiceError as exc:
+                return self._error(str(exc))
             except (IndexError, ValueError):
                 return self._error("잘못된 요청")
 
@@ -372,6 +445,10 @@ def make_handler(st: EditorState):
                     q = parse_qs(url.query)
                     name = st.import_file(q.get("kind", ["media"])[0], q["name"][0], self._raw())
                     return self._json({"ok": True, "name": name, "state": st.state()})
+                if path == "/api/voices/sample":
+                    ext = parse_qs(url.query).get("ext", ["webm"])[0]
+                    p, d = st.voices.save_sample(self._raw(), ext)
+                    return self._json({"path": str(p), "duration": d})
                 data = json.loads(self._raw() or b"{}")
                 if path == "/api/diagnose":
                     return self._json(st.diagnosis(self._plan(data)))
@@ -392,10 +469,36 @@ def make_handler(st: EditorState):
                     return self._json(st.state())
                 if path == "/api/render":
                     return self._json(st.start_render(self._plan(data), bool(data.get("preview"))))
+                if path == "/api/transcribe":
+                    st.auto_captions(int(data["index"]))
+                    return self._json(st.state())
+                if path == "/api/settings":
+                    if "elevenlabs_key" in data:
+                        settings.set_key("elevenlabs", data["elevenlabs_key"])
+                        st._stock = None
+                    return self._json({"voice_ready": voice.engine_ready()})
+                if path == "/api/voices/clone":
+                    st.clone(data.get("name", ""), data.get("samples", []), data.get("consent", ""))
+                    return self._json(st.state()["voice"])
+                if path == "/api/voices/delete":
+                    st.delete_voice(data["id"])
+                    return self._json(st.state()["voice"])
+                if path == "/api/voices/preview":
+                    return self._json({"url": st.preview_voice(data["voice"], data.get("text", ""))})
+                if path == "/api/narration":
+                    return self._json({"narration": st.narration(data)})
+                if path == "/api/narration/draft":
+                    plan = self._plan(data)
+                    _, timeline, _ = st.project.finalize(plan.model_copy(deep=True))
+                    lines, engine = draft_script(plan, timeline, st.project.analyses, st.project.brief,
+                                                 str(data.get("instruction", "")))
+                    return self._json({"lines": [ln.model_dump() for ln in lines], "engine": engine})
                 return self._error("없는 경로", HTTPStatus.NOT_FOUND)
             except ValidationError as exc:
                 return self._error("편집 데이터 형식 오류: " + "; ".join(
                     f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()[:5]))
+            except voice.VoiceError as exc:
+                return self._error(str(exc))
             except (KeyError, ValueError, json.JSONDecodeError) as exc:
                 return self._error(f"잘못된 요청: {exc}")
 

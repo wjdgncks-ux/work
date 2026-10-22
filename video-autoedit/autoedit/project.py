@@ -37,7 +37,7 @@ def finalize(plan: EditPlan, analyses: list[Analysis], platform: Platform, brief
         fill_static_gaps(plan, analyses, platform, style)
     fixes = autofix(plan, platform)
     timeline = build_timeline(plan, analyses, cut_silence=0.0 if manual else style.cut_silence)
-    captions = build_captions(timeline, analyses, platform.caption_chars)
+    captions = build_captions(timeline, analyses, platform.caption_chars, narrations=plan.narrations)
     card = evaluate(plan, timeline, captions, analyses, platform, brief.industry, style)
     card.fixes = fixes
     return card, timeline, captions

@@ -48,6 +48,28 @@ class Insert(BaseModel):
     asset: str = Field(description="asset일 때 자료 폴더의 파일명. 없으면 빈 문자열")
 
 
+class NarrationWord(BaseModel):
+    start: float
+    end: float
+    text: str
+
+
+class Narration(BaseModel):
+    """나레이션(AI 음성/인물 지정 음성). 다른 효과처럼 원본 내용(source, t)에 붙어 클립과 함께 움직인다."""
+
+    source: int
+    t: float = Field(description="나레이션이 시작될 원본 기준 시각")
+    text: str
+    voice: str = Field(default="", description="'elevenlabs:<voice_id>' 형식")
+    voice_name: str = ""
+    audio: str = Field(default="", description="생성된 음성 파일(프로젝트 폴더 기준 상대 경로)")
+    duration: float = 0.0
+    words: list[NarrationWord] = Field(default_factory=list, description="생성 음성 기준 단어 타이밍(자막용)")
+    original: Literal["keep", "duck", "mute"] = Field(default="duck", description="나레이션 동안 원본 소리: 유지/줄이기/끄기")
+    volume_db: float = 0.0
+    captions: bool = True
+
+
 class EditPlan(BaseModel):
     topic: str = Field(description="영상의 핵심 주제 한 줄")
     platform: str
@@ -63,6 +85,8 @@ class EditPlan(BaseModel):
     sponsored: bool = Field(description="협찬/광고 여부. True면 #유료광고 표기 강제")
     rationale: str = Field(description="편집 의도 요약(3문장 이내)")
     risk_notes: list[str] = Field(description="과장·규제·사실 검증이 필요한 표현 목록")
+    narrations: list[Narration] = Field(default_factory=list, description="편집기에서 음성 생성 후 채움. 기획 단계에서는 빈 목록")
+    ai_voice_label: bool = Field(default=True, description="AI 음성이 있으면 화면에 'AI 음성' 표시(AI 기본법 생성물 표시)")
 
 
 class Brief(BaseModel):

@@ -21,7 +21,7 @@ from .compliance import Flag, check_disclosure, scan_text
 from .plan import EditPlan
 from .platforms import Platform
 from .styles import STYLES, Style
-from .timeline import Caption, Piece, map_time, total_duration
+from .timeline import Caption, Piece, map_time, narration_spans, total_duration
 
 WEIGHT = {"상": 15, "중": 6, "하": 2}
 
@@ -176,6 +176,27 @@ def evaluate(plan: EditPlan, timeline: list[Piece], captions: list[Caption],
         issues.append(Issue("해시태그", f"{len(plan.hashtags)}개", "하",
                             "대형 태그만 쓰거나 과다 사용 시 타겟 신호 흐려짐", "대형 2~3 + 니치 3~5 조합"))
 
+    # 5-1. 나레이션(AI 음성)
+    spans = narration_spans(timeline, plan.narrations)
+    missing = [nr for nr in plan.narrations if not nr.audio]
+    if missing:
+        issues.append(Issue("나레이션", f"음성이 아직 생성되지 않은 나레이션 {len(missing)}개", "상",
+                            "음성 파일이 없으면 내보낼 때 빠진다", "편집기에서 '음성 생성'을 누르거나 해당 줄 삭제"))
+    for (a1, b1, _), (a2, b2, _) in zip(spans, spans[1:]):
+        if a2 < b1 - 0.05:
+            issues.append(Issue(f"{a2:.1f}초~", "나레이션 두 개가 겹침", "중",
+                                "두 목소리가 동시에 들리면 내용 전달이 안 됨", "뒤 나레이션을 옮기거나 문장을 줄이기"))
+            break
+    over = [nr for nr in plan.narrations if nr.audio and (t0 := map_time(timeline, nr.source, nr.t)) is not None
+            and t0 + nr.duration > dur + 0.1]
+    if over:
+        issues.append(Issue("마지막 나레이션", "영상 끝을 넘어 잘림", "하", "끝까지 읽히지 않으면 CTA가 묻힘",
+                            "문장을 줄이거나 앞으로 옮기기"))
+    if spans and not plan.ai_voice_label:
+        issues.append(Issue("AI 음성 표시", "AI 음성을 쓰면서 화면 표시를 껐음", "중",
+                            "[원리] 인공지능기본법(2026-01-22 시행): 생성형 AI 결과물 표시 의무(현재 과태료 계도기간)",
+                            "'AI 음성' 표시를 켜고, 업로드 시 플랫폼의 AI 생성 콘텐츠 표시도 체크"))
+
     # 6. 규정 / 사실 검증
     flags: list[Flag] = []
     flags += scan_text("후킹 타이틀", plan.hook_text, industry)
@@ -183,6 +204,8 @@ def evaluate(plan: EditPlan, timeline: list[Piece], captions: list[Caption],
     flags += scan_text("SNS 캡션", plan.sns_caption, industry)
     for ins in plan.inserts:
         flags += scan_text(f"자료카드 '{ins.text[:10]}'", ins.text, industry)
+    for nr in plan.narrations:
+        flags += scan_text(f"나레이션 '{nr.text[:10]}'", nr.text, industry)
     for c in captions:
         flags += [f for f in scan_text(f"자막 {c.start:.1f}초", c.text, industry) if f.severity == "상"]
     flags += check_disclosure(plan.sponsored, plan.sns_caption)

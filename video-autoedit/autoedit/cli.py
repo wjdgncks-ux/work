@@ -6,6 +6,8 @@
   python -m autoedit edit out/원본/reels                          # 수작업 편집기(브라우저)
   python -m autoedit render out/원본/reels/plan.json             # 수정한 기획서로 렌더링
   python -m autoedit profiles                                    # 프로필 목록
+  python -m autoedit voices clone "와이프 목소리" a.m4a b.m4a --consent "동의: 본인"
+  python -m autoedit settings --elevenlabs-key <키>
 """
 
 from __future__ import annotations
@@ -181,6 +183,45 @@ def cmd_edit(args) -> int:
     return 0
 
 
+def cmd_voices(args) -> int:
+    """인물 지정 음성(목소리 복제)·AI 음성 관리. 엔진 키: autoedit settings --elevenlabs-key"""
+    from . import voice
+    store = voice.VoiceStore()
+    try:
+        if args.action == "list":
+            for v in store.list():
+                print(f"{v.id}  {v.name:<16} {v.kind:<6} {v.voice}  {v.note}  [{v.consent}]")
+        elif args.action == "stock":
+            for v in voice.get_engine().stock_voices():
+                print(f"{v['voice']:<40} {v['name']:<16} {' · '.join(v['labels'].values())}")
+        elif args.action == "clone":
+            if not args.consent:
+                log("목소리 주인의 동의가 필요합니다: --consent \"동의: 홍길동(2026-10-22)\"")
+                return 2
+            paths = [store.save_sample(Path(f).read_bytes(), Path(f).suffix)[0] for f in args.files]
+            prof = voice.create_clone(args.name, paths, args.consent, store=store)
+            print(f"만들었습니다: {prof.id} {prof.name} ({prof.note})")
+        elif args.action == "say":
+            info = voice.synthesize(args.text, args.voice, Path(args.out))
+            print(json.dumps(info, ensure_ascii=False))
+        elif args.action == "delete":
+            prof = store.remove(args.id)
+            print("삭제했습니다" if prof else "없는 목소리입니다")
+    except voice.VoiceError as exc:
+        log(str(exc))
+        return 1
+    return 0
+
+
+def cmd_settings(args) -> int:
+    from . import settings
+    if args.elevenlabs_key is not None:
+        settings.set_key("elevenlabs", args.elevenlabs_key)
+    print(f"설정 위치: {settings.home() / 'config.json'}")
+    print(f"ElevenLabs 키: {'설정됨' if settings.get_key('elevenlabs') else '없음'}")
+    return 0
+
+
 def cmd_profiles(_args) -> int:
     for p in list_profiles():
         prof = load_profile(str(p))
@@ -234,6 +275,26 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--no-browser", action="store_true")
     e.add_argument("--whisper", default="small", help="편집기에서 가져온 영상의 자동 캡션 모델 또는 none")
     e.set_defaults(func=cmd_edit)
+
+    v = sub.add_parser("voices", help="AI 음성·인물 지정 음성(내 목소리) 관리")
+    vs = v.add_subparsers(dest="action", required=True)
+    vs.add_parser("list", help="내 목소리 목록")
+    vs.add_parser("stock", help="AI 음성 목록(엔진 제공)")
+    vc = vs.add_parser("clone", help="녹음 파일로 목소리 만들기")
+    vc.add_argument("name")
+    vc.add_argument("files", nargs="+", help="녹음 파일(총 1분 이상 권장)")
+    vc.add_argument("--consent", default="", help="목소리 주인 동의 기록(필수)")
+    vy = vs.add_parser("say", help="문장을 음성 파일로")
+    vy.add_argument("voice", help="'elevenlabs:<voice_id>'")
+    vy.add_argument("text")
+    vy.add_argument("--out", default="voice_out")
+    vd = vs.add_parser("delete")
+    vd.add_argument("id")
+    v.set_defaults(func=cmd_voices)
+
+    st = sub.add_parser("settings", help="API 키 등 사용자 설정(~/.autoedit)")
+    st.add_argument("--elevenlabs-key")
+    st.set_defaults(func=cmd_settings)
 
     pr = sub.add_parser("profiles", help="채널 프로필 목록")
     pr.set_defaults(func=cmd_profiles)

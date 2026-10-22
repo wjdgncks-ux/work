@@ -128,6 +128,7 @@ def plan_llm(analyses: list[Analysis], platform: Platform, brief: Brief, assets:
     plan = _call(client, messages, effort)
     if plan:
         plan.platform = platform.key
+        plan.narrations = []  # 음성은 편집기에서 생성한다
         plan.sponsored = plan.sponsored or brief.sponsored
         messages = messages + [{"role": "assistant", "content": plan.model_dump_json()}]
     return plan, messages

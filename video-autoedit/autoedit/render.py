@@ -14,7 +14,7 @@ from .plan import EditPlan
 from .platforms import Platform
 from .sfx import GAIN_DB, ensure_sfx
 from .subtitles import Overlay, build_ass
-from .timeline import Caption, Piece, map_time, total_duration
+from .timeline import Caption, Piece, map_time, narration_spans, total_duration
 
 @dataclass
 class RenderOptions:
@@ -111,8 +111,13 @@ def _overlays(plan: EditPlan, timeline: list[Piece], dur: float, handle: str = "
     out += [c for c in cards if c.end - c.start > 0.05]
     if plan.cta_text:
         out.append(Overlay(max(dur - 3.0, 0), dur, plan.cta_text, "CTA"))
+    labels = []
     if plan.sponsored:  # 영상 전체가 추천·보증이면 처음~끝 지속 표기
-        out.append(Overlay(0.0, dur, "유료광고", "Badge"))
+        labels.append("유료광고")
+    if plan.ai_voice_label and narration_spans(timeline, plan.narrations):  # AI 기본법: 생성형 AI 결과물 표시
+        labels.append("AI 음성")
+    if labels:
+        out.append(Overlay(0.0, dur, " · ".join(labels), "Badge"))
     if handle:
         out.append(Overlay(0.0, dur, handle, "Handle"))
     return out
@@ -165,11 +170,26 @@ def compose(plan: EditPlan, timeline: list[Piece], captions: list[Caption], anal
     fonts = f":fontsdir='{opts.fonts_dir}'" if opts.fonts_dir else ""
     vchain.append(f"{cur}ass='{ass_arg}'{fonts},format=yuv420p[vout]")
 
-    # 오디오: 목소리 + 효과음 + (선택) BGM 덕킹 → 라우드니스 정규화
+    # 오디오: 원본 목소리(나레이션 구간 덕킹) + 나레이션 + 효과음 + (선택) BGM 덕킹 → 라우드니스 정규화
     sfx_files = ensure_sfx(work.parent / "_sfx", opts.sfx_dir)
     achain: list[str] = []
+    # 나레이션 구간에서 원본 소리 줄이기(duck ≈ -14dB) / 끄기(mute)
+    spans = narration_spans(timeline, plan.narrations)
+    factors = [f"(1-{0.8 if n.original == 'duck' else 1.0}*between(t,{a:.3f},{b:.3f}))"
+               for a, b, n in spans if n.original != "keep"]
+    achain.append(f"[0:a]volume='{'*'.join(factors)}':eval=frame[orig]" if factors else "[0:a]anull[orig]")
+    speech = ["[orig]"]
+    for j, (a, b, nar) in enumerate(spans):
+        inputs += ["-i", str(work.parent / nar.audio)]
+        ms = int(a * 1000)
+        achain.append(f"[{n}:a]aresample=48000,aformat=channel_layouts=stereo,volume={nar.volume_db}dB,"
+                      f"adelay={ms}|{ms}[n{j}]")
+        speech.append(f"[n{j}]")
+        n += 1
+    achain.append(f"{''.join(speech)}amix=inputs={len(speech)}:normalize=0:duration=first[speech]"
+                  if len(speech) > 1 else "[orig]anull[speech]")
     mix = ["[voice]"]
-    achain.append("[0:a]asplit=2[voice][key]" if opts.bgm else "[0:a]anull[voice]")
+    achain.append("[speech]asplit=2[voice][key]" if opts.bgm else "[speech]anull[voice]")
     for j, cue in enumerate(plan.sfx):
         t = map_time(timeline, cue.source, cue.t)
         if t is None:
