@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .analyze import Analysis, analyze
 from .pacing import fill_static_gaps, sanitize
-from .plan import Brief, EditPlan
+from .plan import Brief, Clip, EditPlan
 from .platforms import Platform, get_platforms
 from .render import RenderOptions, render
 from .report import build_report
@@ -28,14 +28,15 @@ RENDER_KEYS = ("font", "fonts_dir", "reframe", "sfx_dir", "assets", "bgm", "bgm_
 
 
 def finalize(plan: EditPlan, analyses: list[Analysis], platform: Platform, brief: Brief,
-             *, auto_pace: bool = True) -> tuple[Scorecard, list[Piece], list[Caption]]:
-    """검증·보정 → 타임라인·자막 → 진단. auto_pace=False면 사람이 넣은 강조를 건드리지 않는다."""
+             *, auto_pace: bool = True, manual: bool = False) -> tuple[Scorecard, list[Piece], list[Caption]]:
+    """검증·보정 → 타임라인·자막 → 진단. auto_pace=False면 사람이 넣은 강조를 건드리지 않는다.
+    manual=True(편집기에서 컷을 클립으로 확정한 프로젝트)면 무음 컷·후킹 재정렬 없이 클립을 보이는 그대로 쓴다."""
     style = STYLES[brief.style]
-    sanitize(plan, analyses)
+    sanitize(plan, analyses, keep_order=manual)
     if auto_pace:
         fill_static_gaps(plan, analyses, platform, style)
     fixes = autofix(plan, platform)
-    timeline = build_timeline(plan, analyses, cut_silence=style.cut_silence)
+    timeline = build_timeline(plan, analyses, cut_silence=0.0 if manual else style.cut_silence)
     captions = build_captions(timeline, analyses, platform.caption_chars)
     card = evaluate(plan, timeline, captions, analyses, platform, brief.industry, style)
     card.fixes = fixes
@@ -93,9 +94,46 @@ class Project:
     def save_plan(self, plan: EditPlan) -> None:
         self.plan_path.write_text(plan.model_dump_json(indent=1), encoding="utf-8")
 
+    def save_meta(self) -> None:
+        (self.pdir / "project.json").write_text(json.dumps(self.meta, ensure_ascii=False, indent=1), encoding="utf-8")
+
     def set_style(self, key: str) -> None:
         self.meta["brief"]["style"] = STYLES[key].key
-        (self.pdir / "project.json").write_text(json.dumps(self.meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        self.save_meta()
+
+    @property
+    def baked(self) -> bool:
+        return bool(self.meta.get("baked"))
+
+    def bake(self) -> EditPlan:
+        """자동 무음 컷 결과를 실제 클립으로 확정한다(보이는 타임라인 = 출력 결과).
+        CapCut처럼 타임라인에서 직접 자르고 지우는 편집기는 이 상태를 전제로 한다."""
+        plan = self.load_plan()
+        if self.baked:
+            return plan
+        sanitize(plan, self.analyses)
+        timeline = build_timeline(plan, self.analyses, cut_silence=self.style.cut_silence)
+        reasons = {(c.source, c.start, c.end): c.reason for c in plan.clips}
+        new = []
+        for p in timeline:
+            reason = next((r for (s, a, b), r in reasons.items() if s == p.source and a <= p.start and p.end <= b), "")
+            new.append(Clip(source=p.source, start=p.start, end=p.end, role=p.role, reason=reason, speed=p.speed))
+        plan.clips = new
+        self.save_plan(plan)
+        self.meta["baked"] = True
+        self.save_meta()
+        return plan
+
+    def add_source(self, path: Path, whisper_model: str | None) -> Analysis:
+        """편집기에서 가져온 원본을 프로젝트에 추가하고 분석한다."""
+        i = len(self.analyses)
+        adir = self.pdir.parent / "_analysis" / f"{path.stem}_{i}"
+        a = analyze(path, i, adir, whisper_model=whisper_model)
+        self.analyses.append(a)
+        self.meta["sources"].append(str(path.resolve()))
+        self.meta["analysis_dirs"].append(str(adir.resolve()))
+        self.save_meta()
+        return a
 
     def output_path(self, preview: bool = False) -> Path:
         return self.pdir / ("preview.mp4" if preview else f"{self.name}_{self.platform.key}.mp4")
@@ -107,7 +145,7 @@ class Project:
         a.transcript = transcript
 
     def finalize(self, plan: EditPlan, *, auto_pace: bool = False):
-        return finalize(plan, self.analyses, self.platform, self.brief, auto_pace=auto_pace)
+        return finalize(plan, self.analyses, self.platform, self.brief, auto_pace=auto_pace, manual=self.baked)
 
     def render(self, plan: EditPlan, *, preview: bool = False, planner_suffix: str = "") -> tuple[dict, Scorecard]:
         card, timeline, captions = self.finalize(plan)

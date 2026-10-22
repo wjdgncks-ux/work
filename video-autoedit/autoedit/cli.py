@@ -176,7 +176,8 @@ def cmd_render(args) -> int:
 def cmd_edit(args) -> int:
     require_ffmpeg()
     from .editor import serve
-    serve(Path(args.project), host=args.host, port=args.port, open_browser=not args.no_browser)
+    serve(Path(args.project), host=args.host, port=args.port, open_browser=not args.no_browser,
+          whisper_model=None if args.whisper == "none" else args.whisper)
     return 0
 
 
@@ -231,6 +232,7 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--host", default="127.0.0.1")
     e.add_argument("--port", type=int, default=8765)
     e.add_argument("--no-browser", action="store_true")
+    e.add_argument("--whisper", default="small", help="편집기에서 가져온 영상의 자동 캡션 모델 또는 none")
     e.set_defaults(func=cmd_edit)
 
     pr = sub.add_parser("profiles", help="채널 프로필 목록")

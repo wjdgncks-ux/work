@@ -1,22 +1,30 @@
-"""수작업 편집기 서버(브라우저 UI). 표준 라이브러리만 사용하며 127.0.0.1에서만 연다.
+"""CapCut 방식 수작업 편집기 서버(브라우저 UI). 표준 라이브러리만 사용하며 127.0.0.1에서만 연다.
 
-  python -m autoedit edit out/<영상>/<플랫폼>
+  python -m autoedit edit out/<채널>/<영상>/<플랫폼>
+
+편집기를 처음 열면 자동 무음 컷을 실제 클립으로 확정(bake)한다 → 타임라인에 보이는 그대로 출력된다.
 
 API
-  GET  /api/state                 프로젝트·기획서·원본 신호·자막·진단
-  POST /api/diagnose {plan}       저장 없이 진단(타임라인·점수)
-  POST /api/save {plan}           plan.json 저장
-  POST /api/style {style}         편집 스타일 변경
-  POST /api/transcript {index, sentences}  자막(대사) 수정
-  POST /api/render {plan, preview}         렌더링 시작(백그라운드)
+  GET  /api/state                         프로젝트·기획서·원본 신호·자막·진단
+  POST /api/diagnose {plan}               저장 없이 진단
+  POST /api/save {plan}                   plan.json 저장(자동 저장)
+  POST /api/style {style}                 스타일 변경
+  POST /api/replan {style}                AI 재편집(현재 편집을 새 기획으로 교체)
+  POST /api/autofill {plan}               정지 구간에 줌 강조 자동 채우기
+  POST /api/transcript {index, sentences} 캡션(대사) 수정
+  POST /api/import?kind=media|asset&name= 파일 가져오기(본문=파일)
+  POST /api/render {plan, preview}        내보내기(백그라운드)
   GET  /api/render/status
-  GET  /media/source/<i> · /media/output?preview=1 · /media/asset/<파일명>   (Range 지원)
+  GET  /media/source/<i> · /media/thumbs/<i> · /media/sfx/<종류> · /media/asset/<파일명>
+  GET  /media/output?preview=0|1[&download=1]
 """
 
 from __future__ import annotations
 
 import json
+import math
 import mimetypes
+import os
 import re
 import threading
 import time
@@ -25,19 +33,28 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from pydantic import ValidationError
 
 from .media import ffmpeg, probe
+from .pacing import fill_static_gaps
 from .plan import EditPlan
-from .project import Project
+from .planner_heuristic import attach_assets, plan_heuristic
+from .project import Project, finalize
+from .sfx import RECIPES, ensure_sfx
 from .styles import STYLES
 from .transcribe import Sentence, Transcript, Word
 
 STATIC = Path(__file__).parent / "editor_static"
 CHUNK = 1 << 16
 WEB_CODECS = {"h264", "vp8", "vp9", "av1"}
+MEDIA_EXT = {".mp4", ".mov", ".m4v", ".webm", ".mkv"}
+ASSET_EXT = {".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov"}
+SFX_LEN = {"whoosh": 0.45, "pop": 0.18, "ding": 0.9, "boom": 0.8, "boing": 0.7, "riser": 1.0}
+SFX_LABEL = {"whoosh": "휙(전환)", "pop": "뽁(강조)", "ding": "띵(정답·수치)", "boom": "쿵(후킹)",
+             "boing": "띠용(유머)", "riser": "상승음(반전 직전)"}
+THUMB_H = 64
 
 
 def ensure_proxy(src: str, workdir: Path) -> Path:
@@ -57,13 +74,50 @@ def ensure_proxy(src: str, workdir: Path) -> Path:
     return proxy
 
 
+def ensure_thumbs(video: Path, duration: float, aspect: float, workdir: Path) -> dict:
+    """타임라인 필름스트립용 썸네일 시트(격자 한 장). 키프레임만 디코딩해서 빠르게 만든다."""
+    meta_path, sheet = workdir / "thumbs.json", workdir / "thumbs.jpg"
+    if meta_path.exists() and sheet.exists() and sheet.stat().st_mtime >= video.stat().st_mtime:
+        return json.loads(meta_path.read_text())
+    interval = max(1.0, duration / 240)
+    count = max(1, math.ceil(duration / interval))
+    cols = min(20, count)
+    rows = math.ceil(count / cols)
+    tw = max(16, int(round(THUMB_H * aspect / 2)) * 2)
+    ffmpeg("-skip_frame", "nokey", "-i", str(video), "-vf",
+           f"fps=1/{interval},scale={tw}:{THUMB_H},tile={cols}x{rows}", "-frames:v", "1", "-q:v", "5", str(sheet))
+    meta = {"interval": interval, "count": count, "cols": cols, "rows": rows, "w": tw, "h": THUMB_H}
+    meta_path.write_text(json.dumps(meta))
+    return meta
+
+
+def _llm_ready() -> bool:
+    return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+
+
 class EditorState:
-    def __init__(self, pdir: Path):
+    def __init__(self, pdir: Path, whisper_model: str | None = None):
         self.project = Project.load(pdir)
-        self.proxies = [ensure_proxy(src, Path(d)) for src, d in
-                        zip(self.project.meta["sources"], self.project.meta["analysis_dirs"])]
+        self.whisper_model = whisper_model
+        self.project.bake()
+        self.proxies: list[Path] = []
+        self.thumbs: list[dict] = []
+        for i in range(len(self.project.analyses)):
+            self._prepare_source(i)
+        self.sfx_files = ensure_sfx(self.project.pdir / "_sfx", self._path("sfx_dir"))
         self.lock = threading.Lock()
         self.job: dict = {"state": "idle"}
+
+    def _path(self, key: str) -> Path | None:
+        v = self.project.meta.get("render", {}).get(key)
+        return Path(v) if v else None
+
+    def _prepare_source(self, i: int) -> None:
+        a = self.project.analyses[i]
+        adir = Path(self.project.meta["analysis_dirs"][i])
+        proxy = ensure_proxy(a.path, adir)
+        self.proxies.append(proxy)
+        self.thumbs.append(ensure_thumbs(proxy, a.duration, a.info.aspect, adir))
 
     # ---------- 직렬화 ----------
     def diagnosis(self, plan: EditPlan) -> dict:
@@ -74,40 +128,48 @@ class EditorState:
             "issues": [vars(i) for i in card.issues],
             "flags": [vars(f) for f in card.flags],
             "fixes": card.fixes,
-            "timeline": [{"source": p.source, "start": p.start, "end": p.end, "out_start": p.out_start,
-                          "duration": round(p.duration, 3), "role": p.role, "speed": p.speed} for p in timeline],
             "captions": [vars(c) for c in captions],
-            "normalized": plan.model_dump(),
         }
+
+    def assets(self) -> list[str]:
+        d = self._path("assets")
+        if not d or not d.is_dir():
+            return []
+        return sorted(f.name for f in d.iterdir() if f.is_file() and f.suffix.lower() in ASSET_EXT)
 
     def state(self) -> dict:
         pr = self.project
         plan = pr.load_plan()
         pf = pr.platform
-        assets_dir = pr.meta.get("render", {}).get("assets")
-        assets = sorted(f.name for f in Path(assets_dir).iterdir() if f.is_file()) if assets_dir and Path(assets_dir).is_dir() else []
+        rc = pr.meta.get("render", {})
         outputs = {}
         for key, preview in (("final", False), ("preview", True)):
             path = pr.output_path(preview)
             outputs[key] = {"exists": path.exists(), "mtime": path.stat().st_mtime if path.exists() else 0,
-                            "url": f"/media/output?preview={int(preview)}"}
+                            "url": f"/media/output?preview={int(preview)}", "path": str(path)}
         return {
             "meta": {
                 "name": pr.name, "profile": pr.meta.get("profile"), "planner": pr.meta.get("planner"),
-                "platform": {"key": pf.key, "label": pf.label, "width": pf.width, "height": pf.height,
-                             "target": pf.target_seconds, "max_shot": pf.max_shot_seconds},
-                "style": pr.style.key, "styles": [{"key": s.key, "label": s.label} for s in STYLES.values()],
-                "brief": pr.meta["brief"], "render": pr.meta.get("render", {}),
+                "dir": str(pr.pdir),
+                "platform": {"key": pf.key, "label": pf.label, "width": pf.width, "height": pf.height, "fps": pf.fps,
+                             "target": pf.target_seconds, "max_shot": pf.max_shot_seconds,
+                             "safe_top": pf.safe_top, "safe_bottom": pf.safe_bottom},
+                "style": pr.style.key, "zoom": pr.style.zoom,
+                "styles": [{"key": s.key, "label": s.label} for s in STYLES.values()],
+                "brief": pr.meta["brief"], "reframe": rc.get("reframe") or "auto",
+                "highlight": rc.get("highlight") or "#FFE500", "handle": rc.get("handle") or "",
+                "bgm": Path(rc["bgm"]).name if rc.get("bgm") else "", "llm": _llm_ready(),
             },
             "plan": plan.model_dump(),
             "sources": [{
                 "index": a.index, "name": Path(a.path).name, "duration": a.duration,
                 "width": a.info.display_size[0], "height": a.info.display_size[1],
-                "silences": a.silences, "peaks": a.peaks, "scenes": a.scene_changes,
-                "url": f"/media/source/{a.index}",
+                "energy": a.energy_db, "url": f"/media/source/{a.index}",
+                "thumbs": {**self.thumbs[a.index], "url": f"/media/thumbs/{a.index}"},
             } for a in pr.analyses],
             "transcripts": [a.transcript.to_dict() if a.transcript else None for a in pr.analyses],
-            "assets": assets,
+            "assets": self.assets(),
+            "sfx": [{"kind": k, "label": SFX_LABEL[k], "len": SFX_LEN[k], "url": f"/media/sfx/{k}"} for k in RECIPES],
             "outputs": outputs,
             "diagnosis": self.diagnosis(plan),
         }
@@ -133,6 +195,51 @@ class EditorState:
         new.sort(key=lambda s: s.start)
         lang = a.transcript.language if a.transcript else "ko"
         self.project.save_transcript(index, Transcript(lang, new))
+
+    def replan(self, style: str) -> None:
+        """현재 원본 전체로 새 기획을 만들고, 무음 컷을 클립으로 확정한다."""
+        pr = self.project
+        pr.set_style(style)
+        brief = pr.brief
+        plan = None
+        if _llm_ready():
+            from .planner_llm import plan_llm
+            plan, _ = plan_llm(pr.analyses, pr.platform, brief, self.assets())
+        if plan is None:
+            plan = plan_heuristic(pr.analyses, pr.platform, brief)
+            attach_assets(plan, pr.analyses, self._path("assets"))
+        finalize(plan, pr.analyses, pr.platform, brief, auto_pace=True)
+        pr.save_plan(plan)
+        pr.meta["baked"] = False
+        pr.meta["planner"] = ("Claude" if _llm_ready() else "규칙 기반") + f" 재편집({STYLES[style].label})"
+        pr.bake()
+
+    def autofill(self, plan: EditPlan) -> EditPlan:
+        pr = self.project
+        fill_static_gaps(plan, pr.analyses, pr.platform, pr.style)
+        return plan
+
+    def import_file(self, kind: str, name: str, body: bytes) -> str:
+        name = Path(name).name
+        ext = Path(name).suffix.lower()
+        if kind == "asset":
+            if ext not in ASSET_EXT:
+                raise ValueError(f"자료로 쓸 수 없는 형식: {ext}")
+            d = self._path("assets") or (self.project.pdir / "assets")
+            d.mkdir(parents=True, exist_ok=True)
+            self.project.meta.setdefault("render", {})["assets"] = str(d.resolve())
+            self.project.save_meta()
+            (d / name).write_bytes(body)
+            return name
+        if ext not in MEDIA_EXT:
+            raise ValueError(f"영상으로 쓸 수 없는 형식: {ext}")
+        d = self.project.pdir / "media"
+        d.mkdir(exist_ok=True)
+        dest = d / name
+        dest.write_bytes(body)
+        self.project.add_source(dest, self.whisper_model)
+        self._prepare_source(len(self.project.analyses) - 1)
+        return name
 
     def start_render(self, plan: EditPlan, preview: bool) -> dict:
         with self.lock:
@@ -173,14 +280,13 @@ def make_handler(st: EditorState):
         def _error(self, msg: str, status=HTTPStatus.BAD_REQUEST):
             self._json({"error": msg}, status)
 
-        def _file(self, path: Path):
+        def _file(self, path: Path | None, download: bool = False):
             if not path or not path.is_file():
                 return self._error("파일 없음", HTTPStatus.NOT_FOUND)
             size = path.stat().st_size
             ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
             start, end = 0, size - 1
-            rng = self.headers.get("Range")
-            m = re.match(r"bytes=(\d*)-(\d*)", rng or "")
+            m = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range") or "")
             if m and (m.group(1) or m.group(2)):
                 if m.group(1):
                     start = int(m.group(1))
@@ -202,6 +308,8 @@ def make_handler(st: EditorState):
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Length", str(length))
             self.send_header("Cache-Control", "no-store")
+            if download:
+                self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(path.name)}")
             self.end_headers()
             try:
                 with path.open("rb") as f:
@@ -216,9 +324,8 @@ def make_handler(st: EditorState):
             except (BrokenPipeError, ConnectionResetError):  # 브라우저가 탐색 중 연결을 끊는 것은 정상
                 pass
 
-        def _body(self) -> dict:
-            n = int(self.headers.get("Content-Length") or 0)
-            return json.loads(self.rfile.read(n) or b"{}")
+        def _raw(self) -> bytes:
+            return self.rfile.read(int(self.headers.get("Content-Length") or 0))
 
         def _plan(self, data: dict) -> EditPlan:
             return EditPlan.model_validate(data["plan"])
@@ -227,6 +334,7 @@ def make_handler(st: EditorState):
         def do_GET(self):
             url = urlparse(self.path)
             path = unquote(url.path)
+            q = parse_qs(url.query)
             try:
                 if path in ("/", "/index.html"):
                     return self._file(STATIC / "index.html")
@@ -239,23 +347,32 @@ def make_handler(st: EditorState):
                 if path == "/api/render/status":
                     return self._json(st.job)
                 if path.startswith("/media/source/"):
+                    return self._file(st.proxies[int(path.rsplit("/", 1)[1])])
+                if path.startswith("/media/thumbs/"):
                     i = int(path.rsplit("/", 1)[1])
-                    return self._file(st.proxies[i])
+                    return self._file(Path(st.project.meta["analysis_dirs"][i]) / "thumbs.jpg")
+                if path.startswith("/media/sfx/"):
+                    return self._file(st.sfx_files.get(path.rsplit("/", 1)[1]))
                 if path == "/media/output":
-                    preview = parse_qs(url.query).get("preview", ["0"])[0] == "1"
-                    return self._file(st.project.output_path(preview))
+                    preview = q.get("preview", ["0"])[0] == "1"
+                    return self._file(st.project.output_path(preview), download="download" in q)
                 if path.startswith("/media/asset/"):
-                    d = st.project.meta.get("render", {}).get("assets")
+                    d = st._path("assets")
                     name = Path(path.rsplit("/", 1)[1]).name  # 경로 탈출 방지
-                    return self._file(Path(d) / name if d else None)
+                    return self._file(d / name if d else None)
                 return self._error("없는 경로", HTTPStatus.NOT_FOUND)
             except (IndexError, ValueError):
                 return self._error("잘못된 요청")
 
         def do_POST(self):
-            path = urlparse(self.path).path
+            url = urlparse(self.path)
+            path = url.path
             try:
-                data = self._body()
+                if path == "/api/import":
+                    q = parse_qs(url.query)
+                    name = st.import_file(q.get("kind", ["media"])[0], q["name"][0], self._raw())
+                    return self._json({"ok": True, "name": name, "state": st.state()})
+                data = json.loads(self._raw() or b"{}")
                 if path == "/api/diagnose":
                     return self._json(st.diagnosis(self._plan(data)))
                 if path == "/api/save":
@@ -265,6 +382,11 @@ def make_handler(st: EditorState):
                 if path == "/api/style":
                     st.project.set_style(data["style"])
                     return self._json(st.state())
+                if path == "/api/replan":
+                    st.replan(data["style"])
+                    return self._json(st.state())
+                if path == "/api/autofill":
+                    return self._json({"plan": st.autofill(self._plan(data)).model_dump()})
                 if path == "/api/transcript":
                     st.save_transcript(int(data["index"]), data["sentences"])
                     return self._json(st.state())
@@ -272,7 +394,7 @@ def make_handler(st: EditorState):
                     return self._json(st.start_render(self._plan(data), bool(data.get("preview"))))
                 return self._error("없는 경로", HTTPStatus.NOT_FOUND)
             except ValidationError as exc:
-                return self._error("기획서 형식 오류: " + "; ".join(
+                return self._error("편집 데이터 형식 오류: " + "; ".join(
                     f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()[:5]))
             except (KeyError, ValueError, json.JSONDecodeError) as exc:
                 return self._error(f"잘못된 요청: {exc}")
@@ -280,11 +402,13 @@ def make_handler(st: EditorState):
     return Handler
 
 
-def serve(pdir: Path, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
-    st = EditorState(pdir)
+def serve(pdir: Path, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True,
+          whisper_model: str | None = None) -> None:
+    print("편집기 준비 중(첫 실행은 썸네일·프록시 생성으로 시간이 걸릴 수 있음)…", flush=True)
+    st = EditorState(pdir, whisper_model)
     httpd = ThreadingHTTPServer((host, port), make_handler(st))
     url = f"http://{host}:{port}/"
-    print(f"수작업 편집기: {url}  (종료: Ctrl+C)\n프로젝트: {pdir}", flush=True)
+    print(f"편집기: {url}  (종료: Ctrl+C)\n프로젝트: {pdir}", flush=True)
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:

@@ -27,7 +27,8 @@ def _snap(a: Analysis, t: float, *, to: str) -> float:
     return t
 
 
-def sanitize(plan: EditPlan, analyses: list[Analysis]) -> None:
+def sanitize(plan: EditPlan, analyses: list[Analysis], *, keep_order: bool = False) -> None:
+    """keep_order=True(수작업 편집)면 사람이 정한 클립 순서를 바꾸지 않는다."""
     n = len(analyses)
     plan.clips = [c for c in plan.clips if 0 <= c.source < n]
     for c in plan.clips:
@@ -35,7 +36,7 @@ def sanitize(plan: EditPlan, analyses: list[Analysis]) -> None:
         c.start = round(max(0.0, _snap(a, c.start, to="start")), 3)
         c.end = round(min(a.duration, _snap(a, c.end, to="end")), 3)
     plan.clips = [c for c in plan.clips if c.end - c.start >= 0.3]
-    if plan.clips and plan.clips[0].role != "hook":
+    if not keep_order and plan.clips and plan.clips[0].role != "hook":
         hooks = [c for c in plan.clips if c.role == "hook"]
         if hooks:
             plan.clips.remove(hooks[0])

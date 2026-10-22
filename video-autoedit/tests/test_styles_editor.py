@@ -12,7 +12,7 @@ from fixtures import make_transcript, make_video  # noqa: E402
 
 from autoedit.analyze import analyze  # noqa: E402
 from autoedit.cli import main  # noqa: E402
-from autoedit.plan import Brief  # noqa: E402
+from autoedit.plan import Brief, EditPlan  # noqa: E402
 from autoedit.planner_heuristic import plan_heuristic  # noqa: E402
 from autoedit.platforms import PLATFORMS  # noqa: E402
 from autoedit.profiles import load_profile  # noqa: E402
@@ -91,6 +91,7 @@ def test_editor_api(tmp_path, capsys):
     pdir = Path(json.loads(capsys.readouterr().out)[0]["project"])
     project = json.loads((pdir / "project.json").read_text())
     assert project["profile"] == "me" and project["render"]["handle"] == "@내계정"
+    auto_clips = len(json.loads((pdir / "plan.json").read_text())["clips"])
 
     from http.server import ThreadingHTTPServer
     from autoedit.editor import EditorState, make_handler
@@ -99,30 +100,48 @@ def test_editor_api(tmp_path, capsys):
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{httpd.server_address[1]}"
     try:
+        # 편집기를 열면 무음 컷이 클립으로 확정된다(보이는 타임라인 = 출력)
+        assert json.loads((pdir / "project.json").read_text())["baked"] is True
         status, _, body = _get(base + "/")
-        assert status == 200 and "수작업 편집기" in body.decode()
+        assert status == 200 and "숏폼 편집기" in body.decode()
         state = json.loads(_get(base + "/api/state")[2])
-        assert state["sources"][0]["duration"] > 19 and state["diagnosis"]["timeline"]
+        plan = state["plan"]
+        assert len(plan["clips"]) >= auto_clips and state["sources"][0]["energy"]
+        total = sum((c["end"] - c["start"]) / c["speed"] for c in plan["clips"])
+        assert total == pytest.approx(st.project.finalize(EditPlan.model_validate(plan))[0].metrics["duration"], abs=0.15)
 
+        assert _get(base + state["sources"][0]["thumbs"]["url"])[0] == 200
+        assert _get(base + "/media/sfx/boing")[0] == 200
         req = urllib.request.Request(base + "/media/source/0", headers={"Range": "bytes=0-99"})
         with urllib.request.urlopen(req) as r:
-            assert r.status == 206 and len(r.read()) == 100 and r.headers["Content-Range"].startswith("bytes 0-99/")
+            assert r.status == 206 and len(r.read()) == 100
 
-        plan = state["plan"]
-        plan["clips"].reverse()
+        # 수작업 순서(후킹을 맨 뒤로)는 렌더 전 보정에서도 유지되고, 진단이 경고한다
+        plan["clips"].append(plan["clips"].pop(0))
         plan["hook_text"] = "업계 1위 비법"
         d = _post(base + "/api/diagnose", {"plan": plan})
         assert any("1위" in f["text"] for f in d["flags"])
+        assert any("후킹" in i["problem"] for i in d["issues"])
         assert _post(base + "/api/save", {"plan": plan})["ok"]
-        assert json.loads((pdir / "plan.json").read_text())["hook_text"] == "업계 1위 비법"
+        saved = EditPlan.model_validate_json((pdir / "plan.json").read_text())
+        st.project.finalize(saved)
+        assert saved.clips[-1].role == "hook"
 
         sents = state["transcripts"][0]["sentences"]
         sents[1]["text"] = "왜 다들 이 방법을 모를까요 진짜?"  # 단어 수 변경 → 균등 배분
         st2 = _post(base + "/api/transcript", {"index": 0, "sentences": sents})
         assert st2["transcripts"][0]["sentences"][1]["text"].endswith("진짜?")
 
-        st3 = _post(base + "/api/style", {"style": "funny"})
-        assert st3["meta"]["style"] == "funny"
+        # 자료 가져오기
+        png = (Path(__file__).parent / "fixtures.py").read_bytes()  # 내용 검사 안 함: 확장자로만 판단
+        req = urllib.request.Request(base + "/api/import?kind=asset&name=chart.png", data=png,
+                                     headers={"Content-Type": "application/octet-stream"})
+        with urllib.request.urlopen(req) as r:
+            assert "chart.png" in json.loads(r.read())["state"]["assets"]
+
+        # AI 재편집(규칙 기반) → 스타일 변경 + 다시 확정
+        st3 = _post(base + "/api/replan", {"style": "funny"})
+        assert st3["meta"]["style"] == "funny" and st3["plan"]["clips"][0]["role"] == "hook"
 
         bad = urllib.request.Request(base + "/api/save", data=b'{"plan": {"clips": 1}}',
                                      headers={"Content-Type": "application/json"})

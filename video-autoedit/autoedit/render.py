@@ -100,10 +100,15 @@ def _overlays(plan: EditPlan, timeline: list[Piece], dur: float, handle: str = "
     hook_end = sum(x.duration for x in timeline if x.role == "hook") or 3.0
     if plan.hook_text:
         out.append(Overlay(0.0, min(max(hook_end, 2.0), 3.5, dur), plan.hook_text, "Hook"))
+    cards = []
     for ins in plan.inserts:
         t = map_time(timeline, ins.source, ins.t)
         if t is not None and ins.kind == "text_card" and ins.text:
-            out.append(Overlay(t, min(t + ins.duration, dur), ins.text, "Card"))
+            cards.append(Overlay(t, min(t + ins.duration, dur), ins.text, "Card"))
+    cards.sort(key=lambda o: o.start)
+    for a, b in zip(cards, cards[1:]):  # 카드가 겹치면 나중 카드가 이어받는다(같은 자리에 겹쳐 찍히지 않게)
+        a.end = min(a.end, b.start)
+    out += [c for c in cards if c.end - c.start > 0.05]
     if plan.cta_text:
         out.append(Overlay(max(dur - 3.0, 0), dur, plan.cta_text, "CTA"))
     if plan.sponsored:  # 영상 전체가 추천·보증이면 처음~끝 지속 표기
