@@ -35,6 +35,13 @@ def _esc(s) -> str:
     return html.escape(str(s or ""))
 
 
+def _engine(e: dict | None) -> str:
+    if not e:
+        return ""
+    warn = " <b class='sev-상'>비상업용 — 사용 불가</b>" if e.get("commercial") is False else ""
+    return f" <span class='muted'>· {_esc(e['label'])} ({_esc(e['license'])})</span>{warn}"
+
+
 def review_html(*, name: str, version: int, platform: Platform, plan: EditPlan, card: Scorecard, info: dict,
                 creator: str, voices_used: list[dict]) -> str:
     cover = ""
@@ -87,7 +94,7 @@ li{{margin:4px 0}} label{{display:flex;gap:8px;align-items:flex-start;margin:6px
   <ul>{rows(f"<li><span class='sev-{_esc(i.severity)}'>[{_esc(i.severity)}]</span> {_esc(i.where)}: {_esc(i.problem)}</li>" for i in severe)}</ul>
   <h2>규정 확인 필요 표현</h2>
   <ul>{rows(f"<li>{_esc(f.where)}: <b>{_esc(f.text)}</b> — {_esc(f.reason)}</li>" for f in flags)}</ul>
-  {('<h2>사용한 AI 음성</h2><ul>' + ''.join(f"<li>{_esc(v['name'])} — {_esc(v.get('consent') or 'AI 기본 음성')}</li>" for v in voices_used) + '</ul>') if voices_used else ''}
+  {('<h2>사용한 AI 음성</h2><ul>' + ''.join(f"<li>{_esc(v['name'])} — {_esc(v.get('consent') or 'AI 기본 음성')}{_engine(v.get('engine'))}</li>" for v in voices_used) + '</ul>') if voices_used else ''}
   <div class="muted" style="margin-top:8px">자동 점검은 의심 표현을 찾아 줄 뿐 법률 판단이 아닙니다. 조문은 law.go.kr에서 확인하세요.</div></div>
 </main></body></html>
 """

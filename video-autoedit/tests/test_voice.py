@@ -23,8 +23,8 @@ REELS = PLATFORMS["reels"]
 
 
 class FakeEngine:
-    """ElevenLabs 대신: 글자 수에 비례한 길이의 톤 mp3 + 균등 글자 타이밍."""
-    model = "fake"
+    """음성 엔진 대신: 글자 수에 비례한 길이의 톤 mp3 + 균등 글자 타이밍."""
+    provider, audio_ext, model = "voicestudio", "mp3", "voxcpm2"
 
     def __init__(self):
         self.calls, self.cloned = [], []
@@ -44,7 +44,7 @@ class FakeEngine:
         return "cloned123"
 
     def stock_voices(self):
-        return [{"voice": "elevenlabs:stock1", "name": "지수", "category": "premade", "labels": {}, "preview_url": ""}]
+        return [{"voice": "voicestudio:stock1", "name": "지수", "category": "premade", "labels": {}, "preview_url": ""}]
 
     def delete(self, voice_id):
         pass
@@ -68,8 +68,8 @@ def test_words_from_alignment():
 
 def test_synthesize_caches(tmp_path):
     eng = FakeEngine()
-    a = voice.synthesize("오늘의 핵심 정리", "elevenlabs:v1", tmp_path, engine=eng)
-    b = voice.synthesize("오늘의  핵심 정리", "elevenlabs:v1", tmp_path, engine=eng)  # 공백만 다름 → 캐시
+    a = voice.synthesize("오늘의 핵심 정리", "voicestudio:v1", tmp_path, engine=eng)
+    b = voice.synthesize("오늘의  핵심 정리", "voicestudio:v1", tmp_path, engine=eng)  # 공백만 다름 → 캐시
     assert a == b and len(eng.calls) == 1
     assert (tmp_path / a["file"]).exists() and a["duration"] > 0.5 and len(a["words"]) == 3
 
@@ -80,7 +80,7 @@ def test_narration_captions_and_render(tmp_path, analysis):
     plan = plan_heuristic([analysis], REELS, brief)
     _, timeline, caps0 = finalize(plan, [analysis], REELS, brief)
     src, t = place(timeline, 1.0)
-    nar = create_narration(tmp_path, "이 영상 하나로 정리합니다", "elevenlabs:v1", "테스트", src, t, engine=eng)
+    nar = create_narration(tmp_path, "이 영상 하나로 정리합니다", "voicestudio:v1", "테스트", src, t, engine=eng)
     plan.narrations.append(nar)
     card, timeline, caps = finalize(plan, [analysis], REELS, brief)
     # 나레이션 구간의 자막은 나레이션 문장으로 바뀐다
@@ -113,7 +113,7 @@ def test_clone_requires_consent(tmp_path):
     with pytest.raises(voice.VoiceError):
         voice.create_clone("와이프", [sample], consent="", store=store, engine=FakeEngine())
     prof = voice.create_clone("와이프", [sample], consent="본인 동의 2026-10-22", store=store, engine=FakeEngine())
-    assert prof.voice == "elevenlabs:cloned123" and store.list()[0].name == "와이프"
+    assert prof.voice == "voicestudio:cloned123" and store.list()[0].name == "와이프"
     p, d = store.save_sample(sample.read_bytes(), ".mp3")
     assert p.exists() and d == pytest.approx(2.0, abs=0.1)
 
@@ -159,18 +159,64 @@ def test_draft_script_fallback(analysis, monkeypatch):
     assert "규칙" in engine and lines[0].text == plan.hook_text and lines[-1].text == "저장해두세요"
 
 
+def test_fit_words_keeps_script_text():
+    heard = [{"text": "핵심만정리해", "start": 0.1, "end": 0.9}, {"text": "드립니다", "start": 1.0, "end": 1.6}]
+    words = voice.fit_words("핵심만 정리해 드립니다", heard, 1.8)
+    assert [w["text"] for w in words] == ["핵심만", "정리해", "드립니다"]  # 글자는 원문, 시각은 인식 결과
+    assert words[0]["start"] == pytest.approx(0.1) and words[1]["end"] == pytest.approx(0.9, abs=0.01)
+    assert words[2]["start"] == pytest.approx(1.0, abs=0.01) and words[2]["end"] == pytest.approx(1.6, abs=0.01)
+    even = voice.fit_words("하나 둘", [], 1.0)  # 인식 실패 → 전체 길이에 고르게
+    assert even[0]["start"] == pytest.approx(0.05) and even[-1]["end"] == pytest.approx(0.95)
+
+
+def test_voicestudio_engine_against_fake_server(tmp_path):
+    from fake_voicestudio import start
+    httpd, url, fake = start()
+    try:
+        vs = voice.VoiceStudio(url, "voxcpm2")
+        assert vs.health() and vs.engines()["moss-tts-nano"]["available"] is False
+        assert [v["voice"] for v in vs.stock_voices()] == ["voicestudio:default", "voicestudio:demo01"]
+        info = voice.synthesize("오늘의 핵심 세 가지", "voicestudio:demo01", tmp_path, engine=vs)
+        assert fake.speech[-1] == {"model": "voxcpm2", "input": "오늘의 핵심 세 가지", "voice": "demo01",
+                                   "response_format": "wav", "speed": 1.0, "language": "ko"}
+        assert [w["text"] for w in info["words"]] == ["오늘의", "핵심", "세", "가지"]
+        assert info["engine"] == "voicestudio/voxcpm2"
+        assert (tmp_path / info["file"]).exists() and not list(tmp_path.glob("*_src.*"))
+        # 녹음 여러 개 → wav 하나로 합쳐 30초 이내
+        a, b = tmp_path / "a.mp3", tmp_path / "b.mp3"
+        for f in (a, b):
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=d=20", str(f)], check=True)
+        prof = voice.create_clone("와이프", [a, b], "동의: 본인", store=voice.VoiceStore(tmp_path / "v"), engine=vs)
+        assert prof.voice == "voicestudio:p001" and fake.created[0]["bytes"] < 44100 * 2 * 31
+        assert not list(tmp_path.glob("ref_*.wav"))
+        vs.delete("p001")
+        assert "p001" not in [p["id"] for p in fake.profiles]
+        with pytest.raises(voice.VoiceError, match="설치"):
+            voice.VoiceStudio(url, "moss-tts-nano").tts("안녕", "default")
+        with pytest.raises(voice.VoiceError, match="라이선스"):
+            voice.VoiceStudio(url, "cosyvoice").tts("안녕", "default")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    with pytest.raises(voice.VoiceError, match="VoiceStudio 앱을 켠"):
+        voice.VoiceStudio(url, "voxcpm2").tts("안녕", "default")  # 앱이 꺼져 있을 때
+
+
 def test_editor_voice_api(tmp_path, monkeypatch, capsys):
     import threading
     import urllib.request
     from http.server import ThreadingHTTPServer
+
+    from fake_voicestudio import start
 
     from autoedit import editor
     from autoedit.cli import main
 
     monkeypatch.setenv("AUTOEDIT_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
-    eng = FakeEngine()
-    monkeypatch.setattr(voice, "get_engine", lambda: eng)
+    monkeypatch.setattr(voice, "_ready", (0.0, False))
+    vs_httpd, vs_url, fake = start()
+    voice.settings.put(voicestudio_url="http://127.0.0.1:9")  # 아무것도 없는 주소 = 앱이 꺼진 상태
 
     video = make_video(tmp_path / "clip.mp4", seconds=20)
     make_transcript(tmp_path / "out" / "clip" / "_analysis" / "clip" / "transcript.json")
@@ -182,43 +228,77 @@ def test_editor_voice_api(tmp_path, monkeypatch, capsys):
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{httpd.server_address[1]}"
 
+    def get(path):
+        return json.loads(urllib.request.urlopen(base + path).read())
+
     def post(path, data, raw=False):
         body = data if raw else json.dumps(data).encode()
         req = urllib.request.Request(base + path, data=body, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req) as r:
             return json.loads(r.read())
 
+    def post_err(path, data) -> str:
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            post(path, data)
+        return json.loads(ei.value.read())["error"]
+
     try:
-        state = json.loads(urllib.request.urlopen(base + "/api/state").read())
+        state = get("/api/state")
         assert state["voice"]["ready"] is False and state["voice"]["mine"] == []
-        assert post("/api/settings", {"elevenlabs_key": "k-123"})["voice_ready"] is True
-        assert json.loads((tmp_path / "home" / "config.json").read_text())["elevenlabs_api_key"] == "k-123"
+        assert state["voice"]["model"] == "voxcpm2" and state["voice"]["engine"] == "voicestudio"
+        v = post("/api/settings", {"voicestudio_url": vs_url})["voice"]
+        assert v["ready"] is True
+        assert json.loads((tmp_path / "home" / "config.json").read_text())["voicestudio_url"] == vs_url
+        stock = get("/api/voices/stock")
+        assert {x["voice"] for x in stock["voices"]} == {"voicestudio:default", "voicestudio:demo01"}
+        assert stock["engines"]["moss-tts-nano"]["available"] is False
+        assert "알 수 없는" in post_err("/api/settings", {"voicestudio_model": "nope"})
 
         sample = subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=d=3", "-f", "webm", "-"],
                                 capture_output=True, check=True).stdout
         s1 = post("/api/voices/sample?ext=webm", sample, raw=True)
         assert s1["duration"] == pytest.approx(3, abs=0.2)
-        with pytest.raises(urllib.error.HTTPError):  # 동의 없이는 불가
-            post("/api/voices/clone", {"name": "와이프", "samples": [s1["path"]], "consent": ""})
-        with pytest.raises(urllib.error.HTTPError):  # 업로드하지 않은 경로는 거부
-            post("/api/voices/clone", {"name": "x", "samples": [str(video)], "consent": "동의"})
+        post_err("/api/voices/clone", {"name": "와이프", "samples": [s1["path"]], "consent": ""})  # 동의 없이는 불가
+        post_err("/api/voices/clone", {"name": "x", "samples": [str(video)], "consent": "동의"})  # 업로드 안 한 경로
         mine = post("/api/voices/clone", {"name": "와이프", "samples": [s1["path"]], "consent": "동의: 본인"})["mine"]
-        assert mine[0]["name"] == "와이프" and eng.cloned
+        assert mine[0]["name"] == "와이프" and mine[0]["voice"] == "voicestudio:p001"
+        stock = get("/api/voices/stock")
+        assert "voicestudio:p001" not in {x["voice"] for x in stock["voices"]}  # 내 목소리와 중복 표시 안 함
 
-        n = post("/api/narration", {"text": "정리해 드립니다", "voice": mine[0]["voice"], "voice_name": "와이프",
+        n = post("/api/narration", {"text": "핵심만 정리해 드립니다", "voice": mine[0]["voice"], "voice_name": "와이프",
                                     "source": 0, "t": 4.5, "original": "mute"})["narration"]
-        assert n["audio"].startswith("narration/") and n["words"]
+        assert n["audio"].startswith("narration/") and n["engine"] == "voicestudio/voxcpm2"
+        assert [w["text"] for w in n["words"]] == ["핵심만", "정리해", "드립니다"]
+        assert fake.speech[-1]["voice"] == "p001"
         assert urllib.request.urlopen(base + "/media/" + n["audio"]).status == 200
 
         plan = state["plan"]
         plan["narrations"].append(n)
         d = post("/api/diagnose", {"plan": plan})
         assert any("정리해" in c["text"] for c in d["captions"])
+        assert not any("비상업용" in i["problem"] for i in d["issues"])
+
+        # 설치 안 된 엔진 / 라이선스 미수락 → 무엇을 해야 하는지 알려 준다
+        line = {"text": "다음 문장", "voice": "voicestudio:default", "source": 0, "t": 1}
+        post("/api/settings", {"voicestudio_model": "moss-tts-nano"})
+        assert "설치" in post_err("/api/narration", line)
+        post("/api/settings", {"voicestudio_model": "cosyvoice"})
+        assert "라이선스" in post_err("/api/narration", line)
+        # 비상업용 엔진으로 만든 나레이션 → AI 진단에서 '상'
+        post("/api/settings", {"voicestudio_model": "omnivoice"})
+        n2 = post("/api/narration", {**line, "text": "개인 시험용 문장", "t": 12})["narration"]
+        assert n2["engine"] == "voicestudio/omnivoice"
+        plan["narrations"].append(n2)
+        d = post("/api/diagnose", {"plan": plan})
+        assert any("비상업용" in i["problem"] and i["severity"] == "상" for i in d["issues"])
+
         draft = post("/api/narration/draft", {"plan": plan, "instruction": ""})
         assert draft["lines"] and "규칙" in draft["engine"]
         assert post("/api/voices/delete", {"id": mine[0]["id"]})["mine"] == []
+        assert "p001" not in [p["id"] for p in fake.profiles]
     finally:
         httpd.shutdown()
+        vs_httpd.shutdown()
 
 
 def test_multi_platform_export_reuses_body(tmp_path, analysis):

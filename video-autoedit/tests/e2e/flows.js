@@ -102,12 +102,28 @@ async function layout(page, where, selectors) {
     check("문장 입력 중 q/w 단축키가 작동하지 않음", (await st()).total === before.total);
 
     // 6) 나레이션(가짜 음성 엔진)
-    await page.waitForFunction(() => document.querySelectorAll("#narVoice option[value^='elevenlabs:']").length > 0, null, { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelectorAll("#narVoice option[value^='voicestudio:']").length > 0, null, { timeout: 15000 });
+    check("음성 탭: VoiceStudio 연결 표시·기본 엔진 VoxCPM2", (await page.textContent("#lpanel")).includes("VoiceStudio 연결됨") && (await page.inputValue("#vsModel")) === "voxcpm2");
+    await layout(page, "음성 탭", ["#vsModel", "#narAdd"]);
+    const clipped = await page.evaluate(() => { const P = document.querySelector("#lpanel").getBoundingClientRect();
+      return [...document.querySelectorAll("#lpanel button, #lpanel select, #lpanel .note")].filter(el => { const b = el.getBoundingClientRect(); return b.width && (b.right > P.right + 1 || (el.matches(".note") && b.width < 40)); }).map(el => el.id || el.textContent.trim().slice(0, 12)); });
+    check("음성 탭: 버튼·문구가 패널 밖으로 잘리거나 세로로 찌그러지지 않음", clipped.length === 0, clipped.join(", "));
     s = t0();
     await page.click("#narAdd");
     await page.waitForFunction(() => plan.narrations.length > 0 && plan.narrations[0].audio, null, { timeout: 30000 });
     results.timings.narration_ms = Date.now() - s;
     check("나레이션 블록 표시", await page.$(".b-nar"));
+    await shot(page, "03b-voice");
+    // VoiceStudio가 꺼진 상황: 안내와 '다시 연결'이 보이고, 다시 켜면 이어서 쓸 수 있어야 한다
+    const vsUrl = await page.evaluate(() => S.voice.url);
+    await page.evaluate(async () => { S.voice = (await api("/api/settings", {voicestudio_url: "http://127.0.0.1:9"})).voice; STOCK = null; renderLeft(); });
+    await page.waitForSelector("#vsRetry");
+    await layout(page, "음성 탭(VoiceStudio 꺼짐)", ["#vsRetry"]);
+    await shot(page, "03c-voice-off");
+    await page.evaluate(async (u) => { await api("/api/settings", {voicestudio_url: u}); }, vsUrl);
+    await page.click("#vsRetry");
+    await page.waitForFunction(() => S.voice.ready, null, { timeout: 15000 });
+    check("VoiceStudio를 다시 켜면 '다시 연결'로 복구", !(await page.$("#vsRetry")));
 
     // 7) 텍스트 추가 + 자동 저장
     await page.click('[data-nav="text"]');
@@ -135,6 +151,7 @@ async function layout(page, where, selectors) {
     check("v1 검수표 링크", await page.$("text=검수표 열기"));
     const sheet = await page.evaluate(async () => (await fetch("/media/review/" + encodeURIComponent("검수표_v1.html"))).text());
     check("검수표에 체크리스트·업로드 문구·AI 음성 표시", /컨펌 체크리스트/.test(sheet) && /업로드 문구/.test(sheet) && /AI 음성 사용/.test(sheet));
+    check("검수표에 음성 엔진·라이선스 표시", /VoxCPM2/.test(sheet) && /Apache-2\.0/.test(sheet) && !/비상업용 — 사용 불가/.test(sheet));
     await shot(page, "04-export");
     await page.click("#mClose");
 

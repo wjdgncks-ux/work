@@ -12,13 +12,14 @@
 ## 설치·실행 (일반 사용자용)
 
 이 프로그램은 **각자 PC에 설치해서 쓰는 방식**이다. 영상은 PC 밖으로 나가지 않는다.
-외부로 나가는 것은 선택 기능뿐이다: Claude(편집 기획·대본)에 보내는 글, ElevenLabs(AI 음성)에 보내는 글·녹음 샘플.
+외부로 나가는 것은 선택 기능뿐이다: Claude(편집 기획·대본)에 보내는 글. AI 음성·내 목소리는 같은 PC의 VoiceStudio 앱이 만든다(밖으로 안 나감).
 
 | | Windows | Mac |
 |---|---|---|
 | 1. 준비 | python.org에서 Python 설치(첫 화면 **Add python.exe to PATH** 체크) | brew.sh에서 Homebrew 설치 |
 | 2. 설치(처음 한 번) | `install-windows.bat` 더블클릭 (ffmpeg 자동 설치 포함) | `install-mac.command` 더블클릭(처음엔 우클릭 → 열기) |
 | 3. 실행 | `start-windows.bat` 더블클릭 → 바탕화면 바로가기 권장 | `start-mac.command` 더블클릭 |
+| 4. AI 음성(선택) | [VoiceStudio 내려받기](https://github.com/debpalash/VoiceStudio/releases/latest)(`.exe`) → 실행 → '모델'에서 **VoxCPM2** 설치·라이선스 수락 | 같은 곳에서 `.dmg`(Apple Silicon만 가능, Intel Mac 불가) |
 
 실행하면 브라우저에 **시작 화면**이 열린다. 아이콘을 두 번 눌러도 창만 다시 열린다(중복 실행 방지).
 설치 문제가 있으면 시작 화면 맨 위에 빨간 안내가 뜨고, '설정·점검'에 해결 방법이 나온다(`python -m autoedit doctor`와 같은 점검).
@@ -29,7 +30,7 @@
 - **Reels·Shorts·TikTok을 같이 고르면 프로젝트는 하나**: 한 번 편집하고, 내보낼 때 플랫폼별 파일을 만든다
   (자막·문구 위치만 각 플랫폼 화면에 맞춤, 컷 인코딩은 한 번만). 가로 YouTube는 별도 프로젝트.
 - **최근 프로젝트**: 표지·채널·플랫폼·컨펌 상태·버전. 채널별·상태별로 거르고, 카드에서 상태 변경·폴더 열기
-- **설정·점검**: 작업자 이름(검수표 '제작'), 작업 폴더(기본: 문서/숏폼편집), 자동 캡션 정확도, AI 음성·Claude 키, 설치 점검
+- **설정·점검**: 작업자 이름(검수표 '제작'), 작업 폴더(기본: 문서/숏폼편집), 자동 캡션 정확도, AI 음성 엔진(VoiceStudio), Claude 키, 설치 점검
 
 ### 컨펌(제작자 ≠ 컨펌자, 완성본으로 소통)
 1. 편집기 **내보내기** → `v1`, `v2`… 로 새 파일이 쌓인다(이전 버전은 남음). 기본으로 '컨펌 요청' 상태가 된다.
@@ -128,15 +129,34 @@ CapCut과 다른 점(아직 없음): 화면 전환 효과(디졸브 등), 필터
 | 기능 | 방법 | 엔진 |
 |---|---|---|
 | 영상 속 음성 → 자막 | 자동 편집 때 자동, 편집기 '캡션' 탭 **자동 캡션** | Whisper(내 PC) |
-| 나레이션 + 자막 | '음성' 탭에 문장 입력 → **재생 위치에 추가**. 자막은 음성의 단어 타이밍에 맞춰 자동 생성 | ElevenLabs |
+| 나레이션 + 자막 | '음성' 탭에 문장 입력 → **재생 위치에 추가**. 자막은 만든 음성을 다시 들어 얻은 단어 시각에 맞춰 자동 생성 | VoiceStudio(내 PC) |
 | AI 대본 | '음성' 탭 **대본 작성** → 줄별 수정 → **전체 음성 생성** | Claude(없으면 화면 문구로 초안) |
-| 텍스트 → 음성 | 텍스트 카드 선택 → '텍스트 음성 변환' 탭 → 읽기 | ElevenLabs |
-| AI 음성 | 엔진의 기본 제공 목소리 목록에서 선택(미리 듣기) | ElevenLabs |
-| 인물 지정 음성(여러 개) | '음성' 탭 **새 목소리 만들기** → 브라우저에서 녹음 또는 파일 → 동의 체크 → 만들기 | ElevenLabs Instant Voice Cloning |
+| 텍스트 → 음성 | 텍스트 카드 선택 → '텍스트 음성 변환' 탭 → 읽기 | VoiceStudio |
+| AI 음성 | '엔진 기본 목소리' 또는 VoiceStudio 앱에서 만든 목소리(목소리 디자인 등) | VoiceStudio |
+| 인물 지정 음성(여러 개) | '음성' 탭 **새 목소리 만들기** → 브라우저에서 녹음 또는 파일(합계 10~30초) → 동의 체크 → 만들기 | VoiceStudio 목소리 복제 |
+
+**음성 엔진(VoiceStudio 안의 모델) — 라이선스가 모델마다 다르다**
+
+| 엔진 | 라이선스 | 회사·광고 영상 | 비고 |
+|---|---|---|---|
+| **VoxCPM2 (기본값)** | Apache-2.0 | 가능(표기상) | 48kHz 고음질, 그래픽카드 권장 |
+| CosyVoice3 | Apache-2.0 | 가능(표기상) | |
+| MOSS-TTS-Nano | Apache-2.0 | 가능(표기상) | 그래픽카드 없어도 빠름, 말 속도 조절 없음 |
+| OmniVoice (VoiceStudio 앱 기본값) | **CC-BY-NC** | **불가** | 비상업용. 고르면 경고, 만든 나레이션은 AI 진단 '상'·검수표에 '사용 불가' 표시 |
+
+- 출처: VoiceStudio [LICENSE-NOTICE.md](https://github.com/debpalash/VoiceStudio/blob/main/LICENSE-NOTICE.md)
+  ("pretrained weights as CC-BY-NC"), [모델 라이선스 목록](https://github.com/debpalash/VoiceStudio/blob/main/docs/licensing/model-inventory.md).
+  VoiceStudio 스스로 모든 모델을 '상업 이용 검토 미완료'로 표시하므로 "가능(표기상)"은 라이선스 표기 기준이다.
+  광고주 납품 영상은 쓰는 엔진의 원본 라이선스를 한 번 더 확인할 것.
+- VoiceStudio 앱 자체는 AGPL-3.0. 이 프로그램은 VoiceStudio를 고치지 않고 이 PC 안(127.0.0.1:3900)에서 요청만 보내므로
+  이 프로그램의 소스 공개 의무는 생기지 않는다.
+- VoiceStudio가 꺼져 있으면 '음성' 탭에 설치·실행 안내와 **다시 연결** 버튼이 뜬다. 엔진 설치·라이선스 수락이 안 됐으면
+  나레이션을 만들 때 그 안내가 그대로 뜬다.
+- 예비 엔진: `python -m autoedit settings --voice-engine elevenlabs --elevenlabs-key <키>`(되돌리기: `--voice-engine voicestudio`).
 
 - 나레이션 동안 원본 소리: 줄이기(약 −14dB)/끄기/유지, 볼륨, 자막 표시 여부를 나레이션마다 지정
 - 나레이션이 겹치면 타임라인에서 줄이 나뉘고, 진단이 경고한다
-- 같은 문장·목소리는 다시 만들지 않는다(요금 절약, 프로젝트 `narration/` 캐시)
+- 같은 문장·목소리·엔진은 다시 만들지 않는다(시간 절약, 프로젝트 `narration/` 캐시)
 - 명령행: `python -m autoedit voices list|stock|clone|say|delete`
 
 **동의와 표시(필수)**
@@ -183,12 +203,12 @@ CapCut과 다른 점(아직 없음): 화면 전환 효과(디졸브 등), 필터
 ## 테스트·사용성 하네스
 
 ```bash
-python -m pytest -q tests                          # 단위·통합(렌더링 포함) 28개
+python -m pytest -q tests                          # 단위·통합(렌더링 포함) 30개
 AUTOEDIT_SKIP_RENDER=1 python -m pytest -q tests   # 렌더링 제외(빠름)
 cd tests/e2e && npm install && cd ../.. && bash tests/e2e/run.sh   # 사용성 E2E → e2e-report/report.md
 ```
 
-**사용성 E2E 하네스**(`tests/e2e/`)는 실제 앱을 가짜 음성 엔진·가짜 음성 인식으로 띄우고, 한글·공백·작은따옴표가 든 파일
+**사용성 E2E 하네스**(`tests/e2e/`)는 실제 앱을 가짜 VoiceStudio 서버(실제와 같은 API, `tests/fake_voicestudio.py`)·가짜 음성 인식으로 띄우고, 한글·공백·작은따옴표가 든 파일
 이름의 영상으로 *시작 화면 → 업로드 → 자동 편집 → 편집기(분할·되돌리기·나레이션·텍스트) → 최종 내보내기 → 검수표 →
 수정 요청 → 홈 카드 → 설정* 을 **노트북(1366×768)과 FHD(1920×1080)** 에서 따라간다. 검사 항목:
 콘솔·요청 오류, 가로 넘침, 핵심 버튼이 화면 안에 보이는지, 플레이어·타임라인 최소 크기, 입력 중 단축키 오작동,
@@ -206,3 +226,6 @@ cd tests/e2e && npm install && cd ../.. && bash tests/e2e/run.sh   # 사용성 E
 | 이름에 '가 있으면 홈 카드 표지·자료 미리보기 안 보임 | 혼란 | CSS url 인코딩 |
 | 윈도우에 없는 글꼴 이름이 기본값 | 자막 글자 깨짐(□) | 글꼴 'auto' → OS 기본 한글 글꼴 |
 | 회전 정보가 있는 아이폰 영상 / 소리 없는 영상 / 3초 영상 | 잘못된 세로 변환·실패 우려 | 테스트로 정상 동작 확인 |
+| VoiceStudio 앱 기본 모델(OmniVoice)이 비상업용 | 회사·광고 영상에 쓰면 라이선스 위반 | 기본 엔진 VoxCPM2, 비상업용 선택 시 경고·진단 '상'·검수표 표시 |
+| VoiceStudio가 꺼져 있을 때 원인 모름 | 나레이션 실패 | '음성' 탭 설치·실행 안내 + 다시 연결, 엔진 미설치·라이선스 미수락 안내 |
+| 노트북 화면에서 '음성' 탭 '원본 소리'가 세로로 찌그러지고 '대본 작성' 버튼이 잘림 | 버튼을 못 찾음 | 줄 바꿈 허용, E2E에 패널 잘림 검사 추가 |

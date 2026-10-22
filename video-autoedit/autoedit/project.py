@@ -269,14 +269,15 @@ class Project:
 
     def write_review_package(self, plan: EditPlan, card: Scorecard, info: dict, version: int, creator: str) -> dict:
         from .review import review_html, upload_text
-        from .voice import VoiceStore
+        from .voice import VoiceStore, engine_info
         voices = {}
         mine = {v.voice: v for v in VoiceStore().list()}
         for n in plan.narrations:
-            if n.audio and n.voice not in voices:
+            if n.audio and (n.voice, n.engine) not in voices:
                 prof = mine.get(n.voice)
-                voices[n.voice] = {"name": n.voice_name or (prof.name if prof else n.voice),
-                                   "consent": prof.consent if prof and prof.kind == "clone" else ""}
+                voices[(n.voice, n.engine)] = {"name": n.voice_name or (prof.name if prof else n.voice),
+                                               "consent": prof.consent if prof and prof.kind == "clone" else "",
+                                               **({"engine": engine_info(n.engine)} if n.engine else {})}
         sheet = self.pdir / f"검수표_v{version}.html"
         sheet.write_text(review_html(name=self.name, version=version, platform=self.platform, plan=plan, card=card,
                                      info=info, creator=creator, voices_used=list(voices.values())), encoding="utf-8")

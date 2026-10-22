@@ -53,6 +53,11 @@ def workspace() -> Path:
     return (docs if docs.is_dir() else Path.home()) / "숏폼편집"
 
 
+def voice_engine() -> str:
+    """음성 엔진: voicestudio(기본, 내 PC 무료 앱) / elevenlabs(예비, 유료 키)."""
+    return load().get("voice_engine") or "voicestudio"
+
+
 def get(name: str, default=None):
     return load().get(name, default)
 

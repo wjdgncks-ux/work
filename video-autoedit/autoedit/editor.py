@@ -15,8 +15,8 @@ API
   POST /api/import?kind=media|asset&name= 파일 가져오기(본문=파일)
   POST /api/render {plan, preview}        내보내기(백그라운드)
   POST /api/transcribe {index}            자동 캡션(음성 인식)
-  POST /api/settings {elevenlabs_key}     음성 엔진 키 저장(~/.autoedit)
-  GET  /api/voices/stock                  AI 음성 목록
+  POST /api/settings {voicestudio_model, voicestudio_url}  음성 엔진 설정 저장(~/.autoedit)
+  GET  /api/voices/stock                  AI 음성 목록 + 엔진별 설치 상태
   POST /api/voices/sample?ext=webm        녹음·파일 샘플 업로드(본문=파일)
   POST /api/voices/clone {name, samples, consent}  인물 지정 음성 만들기
   POST /api/voices/delete {id}
@@ -209,12 +209,20 @@ class EditorState:
             "history": pr.history()[:15],
             "app": self.in_app,
             "diagnosis": self.diagnosis(plan),
-            "voice": {
-                "ready": voice.engine_ready(),
-                "mine": [{"id": v.id, "name": v.name, "voice": v.voice, "kind": v.kind, "note": v.note,
-                          "created": v.created} for v in self.voices.list()],
-                "whisper": _whisper_available(),
-            },
+            "voice": self.voice_state(),
+        }
+
+    def voice_state(self) -> dict:
+        return {
+            "ready": voice.engine_ready(),
+            "engine": settings.voice_engine(),
+            "url": settings.get("voicestudio_url") or voice.VS_URL,
+            "model": settings.get("voicestudio_model") or voice.DEFAULT_VS_MODEL,
+            "models": [{"id": k, **v} for k, v in voice.VS_ENGINES.items()],
+            "download": voice.VS_DOWNLOAD,
+            "mine": [{"id": v.id, "name": v.name, "voice": v.voice, "kind": v.kind, "note": v.note,
+                      "created": v.created} for v in self.voices.list()],
+            "whisper": _whisper_available(),
         }
 
     # ---------- 동작 ----------
@@ -239,10 +247,25 @@ class EditorState:
         lang = a.transcript.language if a.transcript else "ko"
         self.project.save_transcript(index, Transcript(lang, new))
 
-    def stock_voices(self) -> list[dict]:
+    def stock_voices(self) -> dict:
+        """엔진에 있는 목소리(내 목소리 목록에 이미 있는 것은 빼고) + 엔진별 설치 상태."""
         if self._stock is None:
-            self._stock = voice.get_engine().stock_voices()
+            eng = voice.get_engine()
+            mine = {v.voice for v in self.voices.list()}
+            self._stock = {"voices": [v for v in eng.stock_voices() if v["voice"] not in mine],
+                           "engines": eng.engines() if hasattr(eng, "engines") else {}}
         return self._stock
+
+    def save_voice_settings(self, d: dict) -> dict:
+        if d.get("elevenlabs_key"):
+            settings.set_key("elevenlabs", d["elevenlabs_key"])
+        model = d.get("voicestudio_model")
+        if model is not None and model not in voice.VS_ENGINES:
+            raise ValueError("알 수 없는 음성 엔진")
+        settings.put(voicestudio_model=model, voicestudio_url=(d.get("voicestudio_url") or "").strip() or None)
+        voice._ready = (0.0, False)  # 연결 상태 다시 확인
+        self._stock = None
+        return self.voice_state()
 
     def narration(self, d: dict) -> dict:
         nar = create_narration(self.project.pdir, str(d["text"]), str(d["voice"]), str(d.get("voice_name", "")),
@@ -260,14 +283,17 @@ class EditorState:
         if any(root not in p.parents or not p.exists() for p in paths):  # 업로드한 샘플만 허용
             raise ValueError("샘플 경로가 올바르지 않습니다")
         voice.create_clone(name.strip() or "내 목소리", paths, consent, store=self.voices)
+        self._stock = None
 
     def delete_voice(self, vid: str) -> None:
         prof = self.voices.remove(vid)
         if prof and prof.kind == "clone" and voice.engine_ready():
+            provider, _, vid = prof.voice.partition(":")
             try:
-                voice.get_engine().delete(prof.voice.partition(":")[2])
+                voice.get_engine(provider).delete(vid)
             except voice.VoiceError:
                 pass  # 엔진 쪽 삭제 실패는 목록 삭제를 막지 않는다
+        self._stock = None
 
     def auto_captions(self, index: int) -> None:
         a = self.project.analyses[index]
@@ -469,7 +495,7 @@ def make_handler(source):
                 if path.startswith("/api/history/"):
                     return self._json({"plan": st.project.load_history(path.rsplit("/", 1)[1]).model_dump()})
                 if path == "/api/voices/stock":
-                    return self._json({"voices": st.stock_voices()})
+                    return self._json(st.stock_voices())
                 if path.startswith("/media/narration/"):
                     name = Path(path.rsplit("/", 1)[1]).name
                     return self._file(st.project.pdir / "narration" / name)
@@ -528,10 +554,7 @@ def make_handler(source):
                     st.auto_captions(int(data["index"]))
                     return self._json(st.state())
                 if path == "/api/settings":
-                    if "elevenlabs_key" in data:
-                        settings.set_key("elevenlabs", data["elevenlabs_key"])
-                        st._stock = None
-                    return self._json({"voice_ready": voice.engine_ready()})
+                    return self._json({"voice": st.save_voice_settings(data)})
                 if path == "/api/voices/clone":
                     st.clone(data.get("name", ""), data.get("samples", []), data.get("consent", ""))
                     return self._json(st.state()["voice"])

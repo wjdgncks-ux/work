@@ -63,6 +63,7 @@ aside,#player{min-height:0;border-right:1px solid var(--line);background:var(--p
 .tile button{padding:3px 8px}
 .big{width:100%;padding:9px;margin-bottom:8px}
 .note{color:var(--muted);font-size:11px;margin:6px 0}
+.note a{color:var(--accent2);text-decoration:underline}
 .textcard{height:70px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px}
 
 /* 플레이어 */
@@ -497,34 +498,45 @@ $("#lpanel").addEventListener("click", async e => {
 });
 /* ================= 음성: AI 음성·인물 지정 음성·나레이션 ================= */
 const cloneForm = {name: "", who: "", consent: false};
-let STOCK = null, recSamples = [], recorder = null, recTimer = null, recStart = 0, draftLines = [], draftEngine = "", showClone = false;
+let STOCK = null, ENGINES = {}, recSamples = [], recorder = null, recTimer = null, recStart = 0, draftLines = [], draftEngine = "", showClone = false;
 async function loadStock() {
   if (STOCK || !S.voice.ready) return;
-  try { STOCK = (await api("/api/voices/stock")).voices; } catch (e) { STOCK = []; toast("AI 음성 목록을 못 불러왔습니다: " + e.message, 7000); }
+  try { const j = await api("/api/voices/stock"); STOCK = j.voices; ENGINES = j.engines || {}; } catch (e) { STOCK = []; toast("AI 음성 목록을 못 불러왔습니다: " + e.message, 7000); }
   if (leftTab === "voice") renderLeft(); if (sel && ["nar", "ins"].includes(sel.type)) renderProps();
 }
 function voiceOptions(cur) {
   const o = v => `<option value="${v.voice}" data-name="${esc(v.name)}" ${v.voice === cur ? "selected" : ""}>${esc(v.name)}${v.labels && Object.keys(v.labels).length ? " · " + esc(Object.values(v.labels).slice(0, 2).join("/")) : ""}</option>`;
   const mine = S.voice.mine.map(o).join(""), stock = (STOCK || []).map(o).join("");
   return (mine ? `<optgroup label="인물 지정 음성(내 목소리)">${mine}</optgroup>` : "") +
-    (stock ? `<optgroup label="AI 음성">${stock}</optgroup>` : S.voice.ready ? `<option disabled>AI 음성 불러오는 중…</option>` : "") ||
-    `<option value="">음성 없음 — 아래에서 키 설정</option>`;
+    (stock ? `<optgroup label="AI 음성(VoiceStudio)">${stock}</optgroup>` : S.voice.ready ? `<option disabled>AI 음성 불러오는 중…</option>` : "") ||
+    `<option value="">음성 없음 — VoiceStudio를 켜 주세요</option>`;
+}
+function engineBox() {
+  const V = S.voice, cur = V.models.find(m => m.id === V.model) || {id: V.model, label: V.model, license: "확인 필요", note: ""};
+  const opt = m => { const st = ENGINES[m.id]; return `<option value="${m.id}" ${m.id === V.model ? "selected" : ""}>${esc(m.label)}${m.commercial ? "" : " · 비상업용"}${st && !st.available ? " · 설치 필요" : ""}</option>`; };
+  const st = ENGINES[cur.id];
+  return `${V.ready ? "" : `<div class="tile" style="display:block" id="vsOff"><b>VoiceStudio가 꺼져 있습니다</b>
+      <div class="note">AI 음성·내 목소리는 이 PC에 설치한 무료 앱 <b>VoiceStudio</b>로 만듭니다(키·요금 없음).<br>
+      ① <a href="${esc(V.download)}" target="_blank" rel="noopener">VoiceStudio 내려받기</a> → 설치<br>② VoiceStudio 실행 → '모델'에서 <b>${esc(cur.label)}</b> 설치·라이선스 수락<br>③ 아래 '다시 연결'</div>
+      <button class="accent" id="vsRetry" style="margin-top:6px">다시 연결</button></div>`}
+    <div class="fld" style="margin-top:6px"><label>음성 엔진 ${V.ready ? `<span class="ok">· VoiceStudio 연결됨</span>` : ""}</label>
+      <select id="vsModel">${V.models.map(opt).join("")}</select>
+      <div class="note">${esc(cur.license)} · ${esc(cur.note)}${st && !st.available ? ` · <b>VoiceStudio '모델'에서 설치 필요</b>` : ""}</div>
+      ${cur.commercial === false ? `<div class="note" style="color:var(--danger)"><b>비상업용 모델</b> — 회사·광고·협찬·수익 채널 영상에 쓰면 라이선스 위반입니다. 시험용으로만 쓰세요.</div>` : ""}</div>`;
 }
 const pickVoice = selEl => ({voice: selEl.value, name: selEl.selectedOptions[0]?.dataset.name || ""});
 function renderVoicePanel(P) {
   loadStock();
   const total = recSamples.reduce((a, x) => a + x.duration, 0);
   P.innerHTML = `<div class="ph">음성</div>
-    ${S.voice.ready ? "" : `<div class="tile" style="display:block"><b>음성 엔진 연결(ElevenLabs)</b>
-      <div class="note">AI 음성·내 목소리 만들기에 필요합니다. elevenlabs.io 가입 → 프로필 → API Keys에서 키를 만들어 붙여 넣으세요. 키는 이 PC의 사용자 폴더(~/.autoedit)에만 저장됩니다.</div>
-      <div style="display:flex;gap:6px"><input id="elKey" type="password" placeholder="API 키" style="flex:1"><button class="accent" id="elSave">저장</button></div></div>`}
+    ${engineBox()}
     <div class="sub">나레이션 만들기 (텍스트 음성 변환)</div>
     <textarea id="narText" rows="3" placeholder="읽을 문장을 입력하세요"></textarea>
     <div style="display:flex;gap:6px;margin:6px 0"><select id="narVoice" class="vsel">${voiceOptions(localStorage.lastVoice)}</select></div>
-    <div style="display:flex;gap:6px;align-items:center"><span class="note">원본 소리</span><select id="narOrig"><option value="duck">줄이기</option><option value="mute">끄기</option><option value="keep">유지</option></select>
-      <span style="flex:1"></span><button id="narHear" title="미리 듣기">${ic("vol")}</button><button class="accent" id="narAdd">재생 위치에 추가</button></div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="note" style="white-space:nowrap;margin:0">원본 소리</span><select id="narOrig"><option value="duck">줄이기</option><option value="mute">끄기</option><option value="keep">유지</option></select>
+      <span style="flex:1"></span><button id="narHear" title="미리 듣기">${ic("vol")}</button><button class="accent" id="narAdd" style="white-space:nowrap">재생 위치에 추가</button></div>
     <div class="sub">AI 대본 → 한 번에 나레이션</div>
-    <div style="display:flex;gap:6px;align-items:center"><input id="draftInst" placeholder="요청(선택) 예: 친근한 반말, 20대 대상" style="flex:1"><button id="draftGo">${ic("ai")} 대본 작성</button></div>
+    <div style="display:flex;gap:6px;align-items:center"><input id="draftInst" placeholder="요청(선택) 예: 친근한 반말, 20대 대상" style="flex:1;min-width:0"><button id="draftGo" style="white-space:nowrap">${ic("ai")} 대본 작성</button></div>
     ${draftLines.length ? `<div class="note">${esc(draftEngine)} · 시각은 완성 영상 기준(초)</div>` + draftLines.map((l, k) => `<div class="tile" style="padding:6px;gap:6px" data-dl="${k}">
         <input type="number" step="0.1" value="${l.at.toFixed(1)}" data-dat style="width:62px"><textarea data-dtext rows="2" style="min-height:38px">${esc(l.text)}</textarea><button class="ghost" data-ddel>✕</button></div>`).join("")
       + `<button class="big accent" id="draftSynth">전체 음성 생성 → 타임라인에 배치</button>` : ""}
@@ -535,7 +547,7 @@ function renderVoicePanel(P) {
         <div class="fld"><label>목소리 이름</label><input id="cloneName" placeholder="예: 와이프 목소리, 김대리" value="${esc(cloneForm.name)}"></div>
         <div style="display:flex;gap:6px;align-items:center"><button id="recBtn" class="${recorder ? "rec on" : "rec"}">${recorder ? "■ 녹음 정지" : "● 녹음"}</button><span id="recTime" class="note"></span>
           <span style="flex:1"></span><button id="sampleFile">파일 선택</button></div>
-        <div class="note">조용한 곳에서, 평소 말투로, 배경음악 없이 <b>총 1분 이상</b> 녹음을 권장합니다(나눠서 여러 번 가능).</div>
+        <div class="note">조용한 곳에서, 평소 말투로, 배경음악 없이 <b>10~30초</b> 녹음을 권장합니다(나눠서 여러 번 가능, 30초가 넘으면 앞 30초만 씀).</div>
         ${recSamples.map((x, k) => `<div class="note">샘플 ${k + 1} · ${x.duration.toFixed(1)}초 <a data-sdel="${k}" style="cursor:pointer;color:var(--danger)">삭제</a></div>`).join("")}
         <div class="note">합계 <b>${total.toFixed(0)}초</b></div>
         <label style="display:flex;gap:6px;align-items:flex-start;margin:8px 0"><input type="checkbox" id="cloneConsent" ${cloneForm.consent ? "checked" : ""}><span>이 목소리의 주인이 <b>본인</b>이거나, 주인에게 <b>AI 음성 생성 동의</b>를 받았습니다.</span></label>
@@ -551,7 +563,15 @@ $("#lpanel").addEventListener("input", e => {
   else if (e.target.id === "consentWho") cloneForm.who = e.target.value;
   else if (e.target.id === "cloneConsent") cloneForm.consent = e.target.checked;
 });
-$("#lpanel").addEventListener("change", e => { if (e.target.id === "cloneConsent") cloneForm.consent = e.target.checked; });
+$("#lpanel").addEventListener("change", async e => {
+  if (e.target.id === "cloneConsent") cloneForm.consent = e.target.checked;
+  if (e.target.id === "vsModel") {
+    const m = S.voice.models.find(x => x.id === e.target.value);
+    if (m && !m.commercial && !confirm(`${m.label}은(는) 비상업용 모델입니다.\n회사·광고·협찬·수익 채널 영상에는 쓸 수 없습니다. 개인 시험용으로만 바꿀까요?`)) { e.target.value = S.voice.model; return; }
+    try { S.voice = (await api("/api/settings", {voicestudio_model: e.target.value})).voice; STOCK = null; renderLeft(); toast(`음성 엔진: ${m ? m.label : e.target.value}`); }
+    catch (err) { toast(err.message, 7000); }
+  }
+});
 let hearing = null;
 const hear = url => { hearing?.pause(); hearing = new Audio(url); hearing.play().catch(() => {}); };
 async function hearVoice(v, text) { if (!v) return toast("음성을 선택하세요"); busy(true, "미리 듣기 생성 중…"); try { hear((await api("/api/voices/preview", {voice: v, text})).url); } catch (e) { toast(e.message, 7000); } finally { busy(false); } }
@@ -581,7 +601,7 @@ $("#lpanel").addEventListener("click", async e => {
   const t = e.target.closest("button,a[data-sdel]"); if (!t) return;
   const dl = e.target.closest("[data-dl]");
   try {
-    if (t.id === "elSave") { const j = await api("/api/settings", {elevenlabs_key: $("#elKey").value}); S.voice.ready = j.voice_ready; STOCK = null; renderLeft(); toast(j.voice_ready ? "저장했습니다" : "키가 비어 있습니다"); }
+    if (t.id === "vsRetry") { busy(true, "VoiceStudio 확인 중…"); S.voice = (await api("/api/settings", {})).voice; STOCK = null; renderLeft(); toast(S.voice.ready ? "VoiceStudio에 연결했습니다" : "아직 연결되지 않았습니다. VoiceStudio 앱이 켜져 있는지 확인하세요", 6000); }
     else if (t.id === "narHear") hearVoice($("#narVoice").value, $("#narText").value.trim());
     else if (t.id === "narAdd") {
       const text = $("#narText").value.trim(); if (!text) return toast("문장을 입력하세요");

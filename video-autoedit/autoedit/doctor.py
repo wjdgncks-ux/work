@@ -59,6 +59,26 @@ def _ffmpeg_info() -> tuple[bool, str, bool]:
     return True, ver, " ass " in filters and " subtitles " in filters
 
 
+def _voice_check() -> Check:
+    from . import voice
+    if settings.voice_engine() == "elevenlabs":
+        ok = bool(settings.get_key("elevenlabs"))
+        return Check("voice", "AI 음성·내 목소리(ElevenLabs 키)", ok, False, "설정됨" if ok else "없음", "설정 화면에서 키 입력")
+    eng = voice.get_engine("voicestudio")
+    info = voice.VS_ENGINES.get(eng.model, {"label": eng.model, "commercial": None})
+    fix = f"VoiceStudio 설치·실행({voice.VS_DOWNLOAD}) → '모델'에서 {info['label']} 설치·라이선스 수락"
+    if not eng.health():
+        return Check("voice", "AI 음성·내 목소리(VoiceStudio)", False, False, f"연결 안 됨 — {eng.url}", fix)
+    st = eng.engines().get(eng.model)
+    if st and not st["available"]:
+        return Check("voice", "AI 음성·내 목소리(VoiceStudio)", False, False,
+                     f"연결됨 · {info['label']} 엔진 미설치({st['reason'][:80]})", fix)
+    if info["commercial"] is False:
+        return Check("voice", "AI 음성·내 목소리(VoiceStudio)", False, False,
+                     f"연결됨 · {info['label']}은 비상업용 모델", "설정에서 VoxCPM2 등 상업 허용 엔진으로 변경")
+    return Check("voice", "AI 음성·내 목소리(VoiceStudio)", True, False, f"연결됨 · {info['label']}", fix)
+
+
 def run_checks(workspace: Path | None = None) -> list[Check]:
     checks: list[Check] = []
     py = sys.version_info
@@ -84,8 +104,7 @@ def run_checks(workspace: Path | None = None) -> list[Check]:
     checks.append(Check("whisper", "자동 캡션(음성 인식)", whisper, False,
                         "설치됨 — 첫 사용 때 모델을 내려받음(인터넷 필요)" if whisper else "없음",
                         "pip install faster-whisper"))
-    checks.append(Check("elevenlabs", "AI 음성·내 목소리(ElevenLabs 키)", bool(settings.get_key("elevenlabs")), False,
-                        "설정됨" if settings.get_key("elevenlabs") else "없음", "설정 화면에서 키 입력"))
+    checks.append(_voice_check())
     checks.append(Check("anthropic", "AI 편집 기획·대본(Claude 키)", bool(settings.get_key("anthropic")), False,
                         "설정됨" if settings.get_key("anthropic") else "없음 — 규칙 기반 편집으로 동작",
                         "설정 화면에서 키 입력"))

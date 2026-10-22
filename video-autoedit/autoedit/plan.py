@@ -60,8 +60,9 @@ class Narration(BaseModel):
     source: int
     t: float = Field(description="나레이션이 시작될 원본 기준 시각")
     text: str
-    voice: str = Field(default="", description="'elevenlabs:<voice_id>' 형식")
+    voice: str = Field(default="", description="'voicestudio:<목소리 id>' 형식")
     voice_name: str = ""
+    engine: str = Field(default="", description="음성을 만든 엔진·모델(예: voicestudio/voxcpm2). 라이선스 점검용")
     audio: str = Field(default="", description="생성된 음성 파일(프로젝트 폴더 기준 상대 경로)")
     duration: float = 0.0
     words: list[NarrationWord] = Field(default_factory=list, description="생성 음성 기준 단어 타이밍(자막용)")

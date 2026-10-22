@@ -1,6 +1,6 @@
 """E2E 하네스 서버: 실제 앱(시작 화면+편집기)을 외부 의존성 없이 띄운다.
 
-- 음성 엔진(ElevenLabs) → 가짜 엔진(톤 음성 + 균등 글자 타이밍)
+- 음성 엔진(VoiceStudio) → 같은 API로 응답하는 가짜 VoiceStudio 서버(tests/fake_voicestudio.py)
 - 음성 인식(Whisper)   → 영상 길이에 맞춘 가짜 대본
 - 설정·작업 폴더       → 임시 폴더(AUTOEDIT_HOME)
 - 샘플 영상            → 까다로운 파일 이름(한글·공백·작은따옴표)의 VP9 영상(헤드리스 브라우저 재생용)
@@ -66,13 +66,12 @@ def main() -> None:
     os.environ.pop("ANTHROPIC_API_KEY", None)
     os.environ.pop("ELEVENLABS_API_KEY", None)
 
-    from autoedit import analyze, app, editor, settings, voice
-    from test_voice import FakeEngine
+    from autoedit import analyze, app, editor, settings
+    from fake_voicestudio import start
 
+    _, vs_url, _ = start()
     settings.put(workspace=str(root / "workspace"), user_name="테스트 제작자", whisper_model="small",
-                 elevenlabs_api_key="fake-key")
-    eng = FakeEngine()
-    voice.get_engine = lambda: eng
+                 voicestudio_url=vs_url)
     analyze.transcribe = fake_transcriber()
     editor._whisper_available = lambda: True
     app._whisper_available = lambda: True

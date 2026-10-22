@@ -22,6 +22,7 @@ from .plan import EditPlan
 from .platforms import Platform
 from .styles import STYLES, Style
 from .timeline import Caption, Piece, map_time, narration_spans, total_duration
+from .voice import engine_info
 
 WEIGHT = {"상": 15, "중": 6, "하": 2}
 
@@ -192,6 +193,12 @@ def evaluate(plan: EditPlan, timeline: list[Piece], captions: list[Caption],
     if over:
         issues.append(Issue("마지막 나레이션", "영상 끝을 넘어 잘림", "하", "끝까지 읽히지 않으면 CTA가 묻힘",
                             "문장을 줄이거나 앞으로 옮기기"))
+    nc = sorted({nr.engine for nr in plan.narrations if nr.audio and engine_info(nr.engine)["commercial"] is False})
+    if nc:
+        names = ", ".join(engine_info(e)["label"] for e in nc)
+        issues.append(Issue("나레이션 음성", f"비상업용 음성 모델로 만든 나레이션이 있음({names})", "상",
+                            "[원리] 모델 라이선스 CC-BY-NC: 상업적 이용 금지. 회사·광고·협찬·수익 채널 영상에 쓰면 라이선스 위반",
+                            "음성 탭에서 엔진을 VoxCPM2 등 상업 허용 엔진으로 바꾸고 해당 나레이션 '음성 다시 생성'"))
     if spans and not plan.ai_voice_label:
         issues.append(Issue("AI 음성 표시", "AI 음성을 쓰면서 화면 표시를 껐음", "중",
                             "[원리] 인공지능기본법(2026-01-22 시행): 생성형 AI 결과물 표시 의무(현재 과태료 계도기간)",

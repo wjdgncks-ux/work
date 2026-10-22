@@ -9,7 +9,7 @@
   python -m autoedit render out/원본/reels/plan.json             # 수정한 기획서로 렌더링
   python -m autoedit profiles                                    # 프로필 목록
   python -m autoedit voices clone "와이프 목소리" a.m4a b.m4a --consent "동의: 본인"
-  python -m autoedit settings --elevenlabs-key <키>
+  python -m autoedit settings --voicestudio-model voxcpm2          # 음성 엔진(VoiceStudio) 모델
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ def cmd_edit(args) -> int:
 
 
 def cmd_voices(args) -> int:
-    """인물 지정 음성(목소리 복제)·AI 음성 관리. 엔진 키: autoedit settings --elevenlabs-key"""
+    """인물 지정 음성(목소리 복제)·AI 음성 관리. 엔진: VoiceStudio 앱(먼저 켜 두기)"""
     from . import voice
     store = voice.VoiceStore()
     try:
@@ -107,11 +107,18 @@ def cmd_voices(args) -> int:
 
 
 def cmd_settings(args) -> int:
-    from . import settings
+    from . import settings, voice
+    if args.voicestudio_model is not None and args.voicestudio_model not in voice.VS_ENGINES:
+        log(f"알 수 없는 엔진: {args.voicestudio_model} (가능: {', '.join(voice.VS_ENGINES)})")
+        return 2
     if args.elevenlabs_key is not None:
         settings.set_key("elevenlabs", args.elevenlabs_key)
+    settings.put(voice_engine=args.voice_engine, voicestudio_model=args.voicestudio_model,
+                 voicestudio_url=args.voicestudio_url)
+    model = settings.get("voicestudio_model") or voice.DEFAULT_VS_MODEL
     print(f"설정 위치: {settings.home() / 'config.json'}")
-    print(f"ElevenLabs 키: {'설정됨' if settings.get_key('elevenlabs') else '없음'}")
+    print(f"음성 엔진: {settings.voice_engine()} · VoiceStudio 모델 {model} ({voice.VS_ENGINES[model]['license']}) · "
+          f"주소 {settings.get('voicestudio_url') or voice.VS_URL}")
     return 0
 
 
@@ -175,10 +182,10 @@ def main(argv: list[str] | None = None) -> int:
     vs.add_parser("stock", help="AI 음성 목록(엔진 제공)")
     vc = vs.add_parser("clone", help="녹음 파일로 목소리 만들기")
     vc.add_argument("name")
-    vc.add_argument("files", nargs="+", help="녹음 파일(총 1분 이상 권장)")
+    vc.add_argument("files", nargs="+", help="녹음 파일(합계 10~30초 권장)")
     vc.add_argument("--consent", default="", help="목소리 주인 동의 기록(필수)")
     vy = vs.add_parser("say", help="문장을 음성 파일로")
-    vy.add_argument("voice", help="'elevenlabs:<voice_id>'")
+    vy.add_argument("voice", help="'voicestudio:<목소리 id>' 또는 'voicestudio:default' (voices stock으로 확인)")
     vy.add_argument("text")
     vy.add_argument("--out", default="voice_out")
     vd = vs.add_parser("delete")
@@ -186,7 +193,10 @@ def main(argv: list[str] | None = None) -> int:
     v.set_defaults(func=cmd_voices)
 
     st = sub.add_parser("settings", help="API 키 등 사용자 설정(~/.autoedit)")
-    st.add_argument("--elevenlabs-key")
+    st.add_argument("--voicestudio-model", help="voxcpm2(기본) / cosyvoice / moss-tts-nano / omnivoice(비상업용)")
+    st.add_argument("--voicestudio-url", help="기본 http://127.0.0.1:3900")
+    st.add_argument("--voice-engine", choices=["voicestudio", "elevenlabs"], help="예비 엔진으로 되돌릴 때만")
+    st.add_argument("--elevenlabs-key", help="예비 엔진(ElevenLabs) 키")
     st.set_defaults(func=cmd_settings)
 
     dr = sub.add_parser("doctor", help="설치 점검(ffmpeg·자막 기능·한글 글꼴·키·디스크)")

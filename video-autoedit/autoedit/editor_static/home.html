@@ -268,7 +268,9 @@ function renderSettings() {
       <div class="fld"><label>작업 폴더 (프로젝트·완성본이 쌓이는 곳)</label><input id="sWs" value="${esc(H.workspace)}"></div>
       <div class="fld"><label>자동 캡션 정확도</label><select id="sWh" ${s.whisper_installed ? "" : "disabled"}>
         ${[["tiny", "가장 빠름(정확도 낮음)"], ["base", "빠름"], ["small", "권장(균형)"], ["medium", "정확(느림·고사양)"], ["none", "사용 안 함"]].map(([k, n]) => `<option value="${k}" ${s.whisper_model === k ? "selected" : ""}>${n}</option>`).join("")}</select></div>
-      <div class="fld"><label>AI 음성 키 (ElevenLabs) ${s.elevenlabs ? `<span class="ok">· 설정됨</span>` : ""}</label><input id="sEl" type="password" placeholder="${s.elevenlabs ? "바꿀 때만 입력" : "elevenlabs.io → 프로필 → API Keys"}"></div>
+      <div class="fld"><label>AI 음성 엔진 (VoiceStudio · 이 PC에서 무료로 동작)</label><select id="sVm">
+        ${s.voice_models.map(m => `<option value="${m.id}" ${m.id === s.voicestudio_model ? "selected" : ""}>${esc(m.label)} — ${esc(m.license)}${m.commercial ? "" : " · 비상업용(회사·광고 영상 금지)"}</option>`).join("")}</select></div>
+      <div class="fld"><label>VoiceStudio 주소 <span class="muted small">(보통 그대로 두세요)</span></label><input id="sVu" value="${esc(s.voicestudio_url)}"></div>
       <div class="fld"><label>AI 편집 기획 키 (Claude) ${s.anthropic ? `<span class="ok">· 설정됨</span>` : `<span class="muted">· 없으면 규칙 기반 편집</span>`}</label><input id="sAn" type="password" placeholder="${s.anthropic ? "바꿀 때만 입력" : "console.anthropic.com → API Keys"}"></div>
       <button class="accent" id="sSave">저장</button>
       <h2>설치 점검 <button id="sCheck">다시 점검</button></h2>
@@ -279,7 +281,7 @@ function renderSettings() {
 $("#main").addEventListener("click", async e => {
   if (e.target.id === "sSave") {
     busy(true, "저장 중…");
-    try { H = await api("/app/api/settings", {user_name: $("#sName").value.trim(), workspace: $("#sWs").value.trim(), whisper_model: $("#sWh").value, elevenlabs_key: $("#sEl").value.trim(), anthropic_key: $("#sAn").value.trim()}); renderSettings(); toast("저장했습니다"); }
+    try { H = await api("/app/api/settings", {user_name: $("#sName").value.trim(), workspace: $("#sWs").value.trim(), whisper_model: $("#sWh").value, voicestudio_model: $("#sVm").value, voicestudio_url: $("#sVu").value.trim(), anthropic_key: $("#sAn").value.trim()}); renderSettings(); toast("저장했습니다"); }
     catch (err) { toast(err.message, 6000); } finally { busy(false); }
   }
   if (e.target.id === "sCheck") { busy(true, "점검 중…"); try { H = await api("/app/api/checks", {}); renderSettings(); } finally { busy(false); } }

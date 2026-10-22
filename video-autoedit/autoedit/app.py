@@ -23,7 +23,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import doctor, settings
+from . import doctor, settings, voice
 from .editor import STATIC, EditorState, _whisper_available, make_handler
 from .media import probe
 from .osutil import reveal
@@ -123,7 +123,10 @@ class AppState:
             "styles": [{"key": s.key, "label": s.label, "desc": STYLE_DESC[s.key]} for s in STYLES.values()],
             "platforms": [{"key": p.key, "label": p.label} for p in PLATFORMS.values()],
             "projects": self.projects(), "review_states": list(REVIEW_STATES), "checks": self.checks(),
-            "settings": {"elevenlabs": bool(settings.get_key("elevenlabs")), "anthropic": bool(settings.get_key("anthropic")),
+            "settings": {"voicestudio_url": cfg.get("voicestudio_url") or voice.VS_URL,
+                         "voicestudio_model": cfg.get("voicestudio_model") or voice.DEFAULT_VS_MODEL,
+                         "voice_models": [{"id": k, **v} for k, v in voice.VS_ENGINES.items()],
+                         "anthropic": bool(settings.get_key("anthropic")),
                          "whisper_model": cfg.get("whisper_model", "small"), "whisper_installed": _whisper_available(),
                          "user_name": cfg.get("user_name", "")},
             "job": self.job, "editor_open": self.editor.project.pdir.relative_to(self.workspace).as_posix()
@@ -191,8 +194,11 @@ class AppState:
         self.editor = EditorState(pdir, self.whisper_model(), in_app=True)
 
     def save_settings(self, d: dict) -> None:
-        if d.get("elevenlabs_key") is not None and d["elevenlabs_key"] != "":
-            settings.set_key("elevenlabs", d["elevenlabs_key"])
+        model = d.get("voicestudio_model")
+        if model is not None and model not in voice.VS_ENGINES:
+            raise ValueError("알 수 없는 음성 엔진")
+        settings.put(voicestudio_model=model, voicestudio_url=(d.get("voicestudio_url") or "").strip() or None)
+        voice._ready = (0.0, False)
         if d.get("anthropic_key") is not None and d["anthropic_key"] != "":
             settings.set_key("anthropic", d["anthropic_key"])
             settings.export_keys_to_env()

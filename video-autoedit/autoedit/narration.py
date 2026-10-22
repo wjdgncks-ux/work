@@ -35,7 +35,7 @@ def create_narration(pdir: Path, text: str, voice: str, voice_name: str, source:
                      original: str = "duck", speed: float | None = None, engine=None) -> Narration:
     info = synthesize(text, voice, pdir / "narration", speed=speed, engine=engine)
     return Narration(source=source, t=round(t, 3), text=text, voice=voice, voice_name=voice_name,
-                     audio=f"narration/{info['file']}", duration=info["duration"],
+                     engine=info.get("engine", ""), audio=f"narration/{info['file']}", duration=info["duration"],
                      words=[NarrationWord(**w) for w in info["words"]], original=original)
 
 
