@@ -14,6 +14,7 @@ from pathlib import Path
 from .analyze import Analysis
 from .plan import Brief, EditPlan
 from .platforms import Platform
+from .styles import STYLES
 
 MODEL = "claude-opus-5-5"
 
@@ -28,7 +29,10 @@ SNS 알고리즘(시청 지속·공유·저장)에 맞는 편집 기획서(EditP
    군더더기(인사, 자기소개, 반복 설명, 말 더듬음)는 클립에서 제외한다. 클립 경계는 문장 경계에 맞춘다.
 3. 정보 위계: 핵심 수치·체크리스트·단계는 text_card로 띄워 저장·공유 가치를 만든다(최대 3개, 15자 이내).
 4. CTA: 목적(goal)에 맞춘다. reach=저장/공유/팔로우, conversion=프로필 링크/상담 등 구체 행동 하나.
-5. 효과음: 클립 전환=whoosh, 강조 단어=pop, 수치/정답 공개=ding, 후킹 시작=boom. 과하면 피로하므로 1.2초 이상 간격.
+5. 효과음: 편집 조건의 style.sfx 매핑(용도→종류)을 따른다. 종류: whoosh(전환) pop(강조) ding(수치·정답)
+   boom(후킹) boing(유머 리액션) riser(반전 직전 긴장, 해당 시각에 도달하도록 자동 배치). 1.2초 이상 간격.
+   장르별 판단은 편집 조건의 style.guide를 최우선으로 따른다(설명형/유머형/시연형).
+   clip.speed: 말 없이 작업만 하는 긴 구간은 2~4배속으로(원음은 제거됨). 대사가 있는 구간은 1.
 6. 자료화면(kind=asset)은 제공된 자료 파일명 목록에 있는 것만 사용한다. 없으면 만들지 않는다.
 7. 규정: 근거 없는 최상급(최고·최초·1위·100%·완치·보장), 비교 광고, 효능 단정 표현을 hook_text·cta·카드·캡션에 쓰지 않는다.
    의료·화장품·건기식은 특히 엄격. 영상 대사에 위험 표현이 있으면 해당 구간을 빼거나 risk_notes에 기록한다.
@@ -46,6 +50,7 @@ def _image_block(path: str) -> dict:
 
 def build_request(analyses: list[Analysis], platform: Platform, brief: Brief, assets: list[str]) -> list[dict]:
     content: list[dict] = []
+    style = STYLES[brief.style]
     ctx = {
         "platform": {
             "key": platform.key, "label": platform.label, "target_seconds": platform.target_seconds,
@@ -53,6 +58,8 @@ def build_request(analyses: list[Analysis], platform: Platform, brief: Brief, as
             "notes": platform.notes,
         },
         "brief": brief.model_dump(),
+        "style": {"key": style.key, "label": style.label, "guide": style.llm_guide, "sfx": style.sfx,
+                  "target_seconds": [round(x * style.length_mult) for x in platform.target_seconds]},
         "asset_files": assets,
     }
     content.append({"type": "text", "text": "## 편집 조건\n" + json.dumps(ctx, ensure_ascii=False, indent=1)})

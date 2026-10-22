@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-SfxKind = Literal["whoosh", "pop", "ding", "boom"]
+SfxKind = Literal["whoosh", "pop", "ding", "boom", "boing", "riser"]
 EmphasisKind = Literal["zoom_punch", "flash"]
 InsertKind = Literal["text_card", "asset"]
 ClipRole = Literal["hook", "body", "cta"]
@@ -23,6 +23,7 @@ class Clip(BaseModel):
     end: float = Field(description="원본 기준 끝 초")
     role: ClipRole = Field(description="hook=맨 앞 0~3초 후킹 컷, body=본문, cta=마무리 행동 유도")
     reason: str = Field(description="이 구간을 고른 이유(한 문장)")
+    speed: float = Field(default=1.0, description="재생 속도. 1=정상, 2~4=빨리감기(말 없는 시연 구간). 빨리감기 구간은 원음 대신 무음")
 
 
 class Emphasis(BaseModel):
@@ -71,6 +72,7 @@ class Brief(BaseModel):
     audience: str = ""
     goal: Literal["reach", "conversion"] = "reach"  # 신규 유입(후킹) vs 전환(문의/구매)
     industry: str = "general"  # general/beauty/medical/supplement/local/realestate/saas
+    style: Literal["explainer", "funny", "demo"] = "explainer"
     sponsored: bool = False
     cta: str = ""
     hook: str = ""

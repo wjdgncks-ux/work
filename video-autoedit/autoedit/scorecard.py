@@ -20,6 +20,7 @@ from .analyze import Analysis
 from .compliance import Flag, check_disclosure, scan_text
 from .plan import EditPlan
 from .platforms import Platform
+from .styles import STYLES, Style
 from .timeline import Caption, Piece, map_time, total_duration
 
 WEIGHT = {"상": 15, "중": 6, "하": 2}
@@ -57,7 +58,7 @@ def _visual_events(plan: EditPlan, timeline: list[Piece], analyses: list[Analysi
         a = analyses[p.source]
         for sc in a.scene_changes:
             if p.start < sc < p.end:
-                ev.add(round(p.out_start + sc - p.start, 2))
+                ev.add(round(p.to_out(sc), 2))
     for e in plan.emphases:
         t = map_time(timeline, e.source, e.t)
         if t is not None:
@@ -95,10 +96,12 @@ def autofix(plan: EditPlan, platform: Platform) -> list[tuple[str, str, str]]:
 
 
 def evaluate(plan: EditPlan, timeline: list[Piece], captions: list[Caption],
-             analyses: list[Analysis], platform: Platform, industry: str = "general") -> Scorecard:
+             analyses: list[Analysis], platform: Platform, industry: str = "general",
+             style: Style = STYLES["explainer"]) -> Scorecard:
     issues: list[Issue] = []
     dur = total_duration(timeline)
-    lo, hi = platform.target_seconds
+    lo, hi = (x * style.length_mult for x in platform.target_seconds)
+    max_shot = platform.max_shot_seconds * style.pace_mult
 
     # 1. 길이 / 규격
     if dur > platform.max_seconds:
@@ -138,16 +141,20 @@ def evaluate(plan: EditPlan, timeline: list[Piece], captions: list[Caption],
     # 3. 컷 리듬(체류시간 설계)
     ev = _visual_events(plan, timeline, analyses)
     gaps = [(ev[i], ev[i + 1] - ev[i]) for i in range(len(ev) - 1)]
-    long_gaps = [(t, g) for t, g in gaps if g > platform.max_shot_seconds * 1.5]
+    long_gaps = [(t, g) for t, g in gaps if g > max_shot * 1.5]
     avg_shot = dur / max(len(gaps), 1)
     for t, g in long_gaps[:3]:
         issues.append(Issue(f"{t:.1f}초~", f"{g:.1f}초 동안 화면 변화 없음", "중",
-                            f"[경험칙] {platform.label}은 {platform.max_shot_seconds:.1f}초 이상 정지 화면에서 이탈 증가",
+                            f"[경험칙] {platform.label}·{style.label} 기준 {max_shot:.1f}초 이상 정지 화면에서 이탈 증가",
                             "줌 펀치·자료화면·컷 분할 중 하나 추가"))
 
     # 4. 자막
     speech = any(a.transcript for a in analyses)
-    if not speech:
+    if not speech and style.key == "demo":
+        if not any(i.kind == "text_card" for i in plan.inserts):
+            issues.append(Issue("자막", "대사·단계 카드 모두 없음", "상",
+                                "무음 시연은 화면만으로 '무엇을 하는지' 전달 안 됨", "단계마다 STEP 카드 추가"))
+    elif not speech:
         issues.append(Issue("자막", "음성 인식 결과 없음 → 자막 미삽입", "상",
                             "음소거 시청 환경에서 내용 전달 불가, 자막 키워드 강조도 불가",
                             "faster-whisper 설치 후 재실행하거나 transcript.json 직접 작성"))
@@ -161,7 +168,7 @@ def evaluate(plan: EditPlan, timeline: list[Piece], captions: list[Caption],
     if not plan.cta_text.strip():
         issues.append(Issue("마지막 3초", "CTA 없음", "상", "유입이 다음 행동으로 이어지지 않는 구조",
                             "저장/공유/댓글 중 하나를 구체적으로 지시"))
-    if not any(i.kind == "text_card" for i in plan.inserts):
+    if style.key != "funny" and not any(i.kind == "text_card" for i in plan.inserts):
         issues.append(Issue("본문", "핵심 정보 카드(저장 가치 장치) 없음", "하",
                             "[원리] Mosseri: 비연결 도달은 sends(공유) 비중이 큼 → 저장·전달할 정보 요소 필요",
                             "핵심 수치·체크리스트를 텍스트 카드로 1~2개 삽입"))
@@ -197,6 +204,7 @@ def evaluate(plan: EditPlan, timeline: list[Piece], captions: list[Caption],
     metrics = {
         "duration": round(dur, 1),
         "target": f"{lo:.0f}~{hi:.0f}s",
+        "style": style.label,
         "pieces": len(timeline),
         "avg_shot": round(avg_shot, 2),
         "longest_static": round(max((g for _, g in gaps), default=0), 2),

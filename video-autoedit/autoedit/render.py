@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .analyze import Analysis
@@ -15,9 +15,6 @@ from .platforms import Platform
 from .sfx import GAIN_DB, ensure_sfx
 from .subtitles import Overlay, build_ass
 from .timeline import Caption, Piece, map_time, total_duration
-
-ZOOM = 0.14  # 줌 펀치 배율 증가분
-
 
 @dataclass
 class RenderOptions:
@@ -30,6 +27,14 @@ class RenderOptions:
     bgm_db: float = -20.0
     crf: int = 20
     preset: str = "medium"
+    zoom: float = 0.14            # 줌 펀치 배율 증가분(스타일에서 결정)
+    highlight: str = "#FFE500"    # 자막 강조 색(채널 프로필)
+    handle: str = ""              # 채널 핸들 워터마크(예: @mychannel)
+    preview: bool = False         # 저화질 빠른 미리보기(수작업 편집 확인용)
+
+
+def preview_platform(p: Platform) -> Platform:
+    return replace(p, width=p.width // 2 // 2 * 2, height=p.height // 2 // 2 * 2)
 
 
 def _reframe_filter(a: Analysis, p: Platform, mode: str) -> str:
@@ -44,15 +49,16 @@ def _reframe_filter(a: Analysis, p: Platform, mode: str) -> str:
             f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1")
 
 
-def _piece_effects(plan: EditPlan, piece: Piece, p: Platform) -> str:
+def _piece_effects(plan: EditPlan, piece: Piece, p: Platform, zoom: float) -> str:
     punches, flashes = [], []
     for e in plan.emphases:
         if e.source == piece.source and piece.start <= e.t < piece.end:
-            (punches if e.kind == "zoom_punch" else flashes).append(round(e.t - piece.start, 3))
-    chain = f",fps={p.fps}"
+            (punches if e.kind == "zoom_punch" else flashes).append(round((e.t - piece.start) / piece.speed, 3))
+    chain = f",setpts=(PTS-STARTPTS)/{piece.speed}" if piece.speed != 1.0 else ""
+    chain += f",fps={p.fps}"
     if punches:
         terms = "+".join(
-            f"{ZOOM}*min(1,max(0,(it-{a})/0.08))*min(1,max(0,({a}+1.0-it)/0.3))" for a in punches)
+            f"{zoom}*min(1,max(0,(it-{a})/0.08))*min(1,max(0,({a}+1.0-it)/0.3))" for a in punches)
         chain += (f",zoompan=z='1+{terms}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
                   f":d=1:s={p.width}x{p.height}:fps={p.fps}")
     for a in flashes:
@@ -67,18 +73,19 @@ def render_pieces(plan: EditPlan, timeline: list[Piece], analyses: list[Analysis
     for i, piece in enumerate(timeline):
         a = analyses[piece.source]
         out = work / f"piece_{i:03d}.mkv"
-        dur = piece.duration
-        graph = _reframe_filter(a, p, opts.reframe) + _piece_effects(plan, piece, p)
+        dur = piece.duration  # 출력 길이(빨리감기 반영)
+        graph = _reframe_filter(a, p, opts.reframe) + _piece_effects(plan, piece, p, opts.zoom)
         fade = min(0.02, dur / 4)
-        args = ["-ss", f"{piece.start:.3f}", "-t", f"{dur:.3f}", "-i", a.path]
-        if a.info.has_audio:
+        args = ["-ss", f"{piece.start:.3f}", "-t", f"{piece.src_duration:.3f}", "-i", a.path]
+        if a.info.has_audio and piece.speed == 1.0:
             graph += (f";[0:a]aresample=48000,aformat=channel_layouts=stereo,"
                       f"afade=t=in:d={fade},afade=t=out:st={dur - fade:.3f}:d={fade}[a]")
-        else:
+        else:  # 원음 없음 또는 빨리감기 구간 → 무음(효과음·BGM이 채움)
             args += ["-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
             graph += ";[1:a]anull[a]"
         ffmpeg(*args, "-filter_complex", graph, "-map", "[v]", "-map", "[a]", "-t", f"{dur:.3f}",
-               "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-g", str(p.fps),
+               "-c:v", "libx264", "-preset", "ultrafast" if opts.preview else "veryfast",
+               "-crf", "26" if opts.preview else "16", "-g", str(p.fps),
                "-c:a", "pcm_s16le", str(out))
         listing.append(f"file '{out.resolve()}'")
     concat = work / "concat.txt"
@@ -88,7 +95,7 @@ def render_pieces(plan: EditPlan, timeline: list[Piece], analyses: list[Analysis
     return body
 
 
-def _overlays(plan: EditPlan, timeline: list[Piece], dur: float) -> list[Overlay]:
+def _overlays(plan: EditPlan, timeline: list[Piece], dur: float, handle: str = "") -> list[Overlay]:
     out: list[Overlay] = []
     hook_end = sum(x.duration for x in timeline if x.role == "hook") or 3.0
     if plan.hook_text:
@@ -99,8 +106,10 @@ def _overlays(plan: EditPlan, timeline: list[Piece], dur: float) -> list[Overlay
             out.append(Overlay(t, min(t + ins.duration, dur), ins.text, "Card"))
     if plan.cta_text:
         out.append(Overlay(max(dur - 3.0, 0), dur, plan.cta_text, "CTA"))
-    if plan.sponsored:
+    if plan.sponsored:  # 영상 전체가 추천·보증이면 처음~끝 지속 표기
         out.append(Overlay(0.0, dur, "유료광고", "Badge"))
+    if handle:
+        out.append(Overlay(0.0, dur, handle, "Handle"))
     return out
 
 
@@ -114,7 +123,8 @@ def compose(plan: EditPlan, timeline: list[Piece], captions: list[Caption], anal
         if t is not None and e.keyword:
             marks.append((t, e.keyword))
     ass = work / "subs.ass"
-    ass.write_text(build_ass(p, captions, _overlays(plan, timeline, dur), marks, opts.font), encoding="utf-8")
+    ass.write_text(build_ass(p, captions, _overlays(plan, timeline, dur, opts.handle), marks, opts.font,
+                             opts.highlight), encoding="utf-8")
 
     inputs: list[str] = ["-i", str(body)]
     vchain: list[str] = []
@@ -161,6 +171,8 @@ def compose(plan: EditPlan, timeline: list[Piece], captions: list[Caption], anal
             continue
         if cue.kind == "whoosh":  # 전환음은 컷 직전에 시작해야 자연스럽다
             t = max(0.0, t - 0.2)
+        elif cue.kind == "riser":  # 상승음은 해당 시점에 '도달'해야 한다
+            t = max(0.0, t - 1.0)
         inputs += ["-i", str(sfx_files[cue.kind])]
         ms = int(t * 1000)
         achain.append(f"[{n}:a]aresample=48000,aformat=channel_layouts=stereo,"
@@ -182,7 +194,8 @@ def compose(plan: EditPlan, timeline: list[Piece], captions: list[Caption], anal
     out.parent.mkdir(parents=True, exist_ok=True)
     ffmpeg(*inputs, "-filter_complex_script", str(script), "-map", "[vout]", "-map", "[aout]",
            "-t", f"{dur:.3f}", "-r", str(p.fps),
-           "-c:v", "libx264", "-preset", opts.preset, "-crf", str(opts.crf), "-profile:v", "high",
+           "-c:v", "libx264", "-preset", "ultrafast" if opts.preview else opts.preset,
+           "-crf", "28" if opts.preview else str(opts.crf), "-profile:v", "high",
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
            "-movflags", "+faststart", str(out))
     return out
@@ -220,9 +233,12 @@ def verify(out: Path, p: Platform) -> dict:
 
 def render(plan: EditPlan, timeline: list[Piece], captions: list[Caption], analyses: list[Analysis],
            p: Platform, opts: RenderOptions, out: Path, work: Path) -> dict:
+    if opts.preview:
+        p = preview_platform(p)
     body = render_pieces(plan, timeline, analyses, p, opts, work / "pieces")
     compose(plan, timeline, captions, analyses, p, opts, body, out, work)
     correct_loudness(out, p.loudness_lufs)
     result = verify(out, p)
-    (work / "render.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+    result["preview"] = opts.preview
+    (work / ("preview.json" if opts.preview else "render.json")).write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
     return result

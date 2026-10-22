@@ -42,6 +42,7 @@ class MediaInfo:
     fps: float
     rotation: int
     has_audio: bool
+    codec: str = ""
 
     @property
     def display_size(self) -> tuple[int, int]:
@@ -80,7 +81,7 @@ def probe(path: str | Path) -> MediaInfo:
     return MediaInfo(
         path=str(path), duration=duration,
         width=int(video["width"]), height=int(video["height"]),
-        fps=fps or 30.0, rotation=rotation, has_audio=has_audio,
+        fps=fps or 30.0, rotation=rotation, has_audio=has_audio, codec=video.get("codec_name", ""),
     )
 
 

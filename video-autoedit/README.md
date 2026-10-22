@@ -21,21 +21,49 @@ export ANTHROPIC_API_KEY=...   # 선택: 없으면 규칙 기반 기획으로 �
 ## 사용법
 
 ```bash
-# 영상마다 따로 편집, Reels+Shorts 두 버전
-python -m autoedit run 촬영1.mp4 촬영2.mp4 --platform reels,shorts
+# 1) 채널 프로필로 자동 편집 (profiles/company.json · me.json · wife.json)
+python -m autoedit run 촬영1.mp4 촬영2.mp4 --profile company
 
-# 여러 컷을 한 편으로 + 의도 지정 + 자료화면 폴더 + 협찬
-python -m autoedit run a.mp4 b.mp4 --mode merge --topic "아침 루틴 3가지" \
-  --goal conversion --industry beauty --cta "프로필 링크에서 상담 신청" \
-  --assets ./자료 --bgm ./bgm_licensed.mp3 --sponsored
+# 2) 장르(스타일) 직접 지정: explainer=설명형, funny=유머·재미, demo=제품 시연
+python -m autoedit run 브이로그.mp4 --profile wife --style funny
 
-# 기획서만 먼저 → plan.json 직접 수정 → 다시 렌더링 (권장 워크플로)
-python -m autoedit run a.mp4 --plan-only
-python -m autoedit render out/a/reels/plan.json
+# 3) 수작업 편집기(브라우저) — 자동 편집 결과를 열어 직접 다듬고 렌더링
+python -m autoedit edit out/company/촬영1/reels
+
+# 기타
+python -m autoedit run a.mp4 --plan-only              # 기획서·리포트만
+python -m autoedit render out/me/a/reels/plan.json    # plan.json을 직접 고친 뒤 렌더링(--preview 저화질)
+python -m autoedit profiles                           # 프로필 목록
 ```
 
-출력: `out/<영상>/<플랫폼>/` 아래 `<영상>_<플랫폼>.mp4`, `.cover.jpg`, `report.md`, `plan.json`.
-자막 오타는 `out/<영상>/_analysis/<원본>/transcript.json`을 고치고 다시 실행하면 반영된다.
+출력: `out/<프로필>/<영상>/<플랫폼>/` 아래 `<영상>_<플랫폼>.mp4`, `.cover.jpg`, `report.md`, `plan.json`.
+
+### 스타일(장르)별 차이 — `autoedit/styles.py`
+
+| | 설명형 `explainer` | 유머 `funny` | 제품 시연 `demo` |
+|---|---|---|---|
+| 후킹 | 질문·숫자·반전 문장 | 가장 큰 리액션(음량 피크) 미리보기 | 결과·완성 장면 미리보기 |
+| 무음 컷 | 0.35초↑ 전부 컷(속도감) | 0.8초↑만 컷(펀치라인 앞 '숨' 유지) | 0.6초↑ 컷 + 말 없는 작업 구간 2~4배속 |
+| 강조 | 핵심 단어 줌 | 강한 줌 + 플래시 + boing | 약한 줌, STEP 단계 카드 |
+| 효과음 | whoosh/pop/ding/boom | whoosh/boing/riser | whoosh/pop/ding/riser |
+| 길이 | 플랫폼 권장 | 권장 × 0.8 | 권장 × 1.2 |
+
+### 채널 프로필 — `profiles/*.json`
+
+채널별로 기본 장르·플랫폼·CTA·고정 해시태그·자막 강조색·핸들 워터마크·자료 폴더를 저장한다.
+`[ ]` 표시 칸과 `@계정`을 실제 값으로 바꿔 쓰고, 자료 이미지는 `assets/<채널>/`에 넣는다(파일명이 대사 키워드와 맞으면 자동 삽입).
+명령행 옵션이 프로필보다 우선한다.
+
+### 수작업 편집기 — `python -m autoedit edit <프로젝트 폴더>`
+
+브라우저(127.0.0.1)에서 열리는 편집 화면. 설치할 것 없음(파이썬 표준 라이브러리).
+- **컷**: 원본을 보며 `I`/`O`로 구간 지정 → `A` 클립 추가, `S` 현재 위치에서 자르기, 드래그로 순서 변경, 속도(빨리감기) 입력
+- **강조·효과음·자료화면**: 현재 위치에 `E` 줌 / 플래시 / `F` 효과음 / 텍스트 카드 / 자료 이미지 추가, 표에서 시각·종류 수정
+- **문구**: 후킹 타이틀·CTA·제목 후보·캡션·해시태그·협찬 표기
+- **자막**: 음성 인식 오타 수정, 문장 추가, 시각 조정
+- **실시간 진단**: 고칠 때마다 점수·이슈·규정 플래그 갱신(렌더 없이 즉시)
+- **확인**: 렌더 없이 '시퀀스 재생' → 저화질 미리보기 렌더 → 최종 렌더
+- `Ctrl+S` 저장, `Ctrl+Z` 되돌리기. 원본이 HEVC(아이폰 기본)·4K면 편집용 H.264 프록시를 자동 생성(렌더링은 원본으로)
 
 | 기능 | 동작 |
 |---|---|
@@ -65,6 +93,9 @@ python -m autoedit render out/a/reels/plan.json
 - Instagram Reels 3분: 2025-01 Mosseri 발표 ([Social Media Today](https://www.socialmediatoday.com/news/instagram-officially-expands-reels-length-3-minutes/737766/))
 - Instagram 핵심 신호(시청시간·도달 대비 좋아요·도달 대비 공유): Mosseri 2025-01 ([Social Media Today](https://www.socialmediatoday.com/news/instagram-shares-algorithm-insights-2025/738034/))
 - -14 LUFS는 YouTube가 공식 문서화하지 않은 통용 기준이라 `[경험칙]`으로 분류했다.
+
+**협찬·이해관계 표기**: 동영상은 시작과 끝에 표기하고 영상 중에도 반복 노출하는 것이 공정위 지침의 해설 방향이라, `--sponsored`면 영상 전체에 '유료광고' 배지를 띄운다.
+가족 채널에서 회사 제품을 다룰 때 표기 의무가 어디까지인지는 확인하지 못했다. 공정위 지침 원문(https://www.ftc.go.kr)을 확인하기 전까지는 표기하는 쪽을 기본값으로 둔다.
 
 **진단 점수는 편집 구조의 결함을 보는 점수이고, 조회수 예측이 아니다.** 소재의 매력, 타겟 적합성, 차별점은 리포트 6번 체크리스트로 사람이 판단한다.
 

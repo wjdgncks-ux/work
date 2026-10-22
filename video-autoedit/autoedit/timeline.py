@@ -20,10 +20,19 @@ class Piece:
     end: float
     out_start: float
     role: str
+    speed: float = 1.0
+
+    @property
+    def src_duration(self) -> float:
+        return self.end - self.start
 
     @property
     def duration(self) -> float:
-        return self.end - self.start
+        """출력 타임라인상의 길이(빨리감기 반영)."""
+        return (self.end - self.start) / self.speed
+
+    def to_out(self, t: float) -> float:
+        return self.out_start + (t - self.start) / self.speed
 
     @property
     def out_end(self) -> float:
@@ -49,20 +58,24 @@ def _subtract_silences(start: float, end: float, silences: list[tuple[float, flo
     return [(a, b) for a, b in pieces if b - a >= MIN_PIECE]
 
 
-def build_timeline(plan: EditPlan, analyses: list[Analysis], *, jumpcut: bool = True) -> list[Piece]:
+def build_timeline(plan: EditPlan, analyses: list[Analysis], *, cut_silence: float = 0.35) -> list[Piece]:
+    """cut_silence 이상 지속된 무음만 잘라낸다(0이면 무음 컷 끔). 빨리감기 클립은 자르지 않는다."""
     out: list[Piece] = []
     cursor = 0.0
     for clip in plan.clips:
         a = analyses[clip.source]
         start, end = max(0.0, clip.start), min(a.duration, clip.end)
+        speed = min(max(clip.speed, 0.25), 8.0)
         if end - start < MIN_PIECE:
             continue
-        ranges = _subtract_silences(start, end, a.silences) if jumpcut and a.info.has_audio else [(start, end)]
-        if not ranges:  # 전부 무음(B-roll 등)이면 원본 유지
-            ranges = [(start, end)]
+        ranges = [(start, end)]
+        if cut_silence > 0 and speed == 1.0 and a.info.has_audio:
+            long_silences = [(s, e) for s, e in a.silences if e - s >= cut_silence]
+            ranges = _subtract_silences(start, end, long_silences) or [(start, end)]  # 전부 무음이면 원본 유지
         for s, e in ranges:
-            out.append(Piece(clip.source, round(s, 3), round(e, 3), round(cursor, 3), clip.role))
-            cursor += e - s
+            piece = Piece(clip.source, round(s, 3), round(e, 3), round(cursor, 3), clip.role, speed)
+            out.append(piece)
+            cursor += piece.duration
     return out
 
 
@@ -73,7 +86,7 @@ def map_time(timeline: list[Piece], source: int, t: float) -> float | None:
         return None
     body = [p for p in hits if p.role != "hook"]
     p = (body or hits)[0]
-    return round(p.out_start + (t - p.start), 3)
+    return round(p.to_out(t), 3)
 
 
 def total_duration(timeline: list[Piece]) -> float:
@@ -95,7 +108,7 @@ def build_captions(timeline: list[Piece], analyses: list[Analysis], max_chars: i
     caps: list[Caption] = []
     for p in timeline:
         tr = analyses[p.source].transcript
-        if not tr:
+        if not tr or p.speed != 1.0:  # 빨리감기 구간은 원음이 없으므로 자막도 없음
             continue
         words = [w for w in tr.words() if w.start >= p.start - 0.05 and w.end <= p.end + 0.15]
         buf: list[str] = []

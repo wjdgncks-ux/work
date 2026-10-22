@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from fixtures import make_transcript, make_video  # noqa: E402
 
 from autoedit.analyze import analyze  # noqa: E402
-from autoedit.cli import _finalize, main  # noqa: E402
+from autoedit.cli import main  # noqa: E402
+from autoedit.project import finalize as _finalize  # noqa: E402
 from autoedit.compliance import check_disclosure, scan_text  # noqa: E402
 from autoedit.pacing import sanitize  # noqa: E402
 from autoedit.plan import Brief, EditPlan, Insert  # noqa: E402
@@ -39,7 +40,7 @@ def test_analysis_detects_gaps(analysis):
 def test_silence_subtraction():
     pieces = _subtract_silences(0, 10, [(2.0, 3.0), (6.0, 6.2)])
     assert pieces[0] == (0, 2.08) and pieces[1][0] == pytest.approx(2.92)
-    assert len(pieces) == 2  # 0.2초 무음은 여유(PAD) 때문에 잘리지 않음
+    assert len(pieces) == 2  # 0.2초 무음은 미세 컷이라 자르지 않음
 
 
 def test_heuristic_plan_structure(analysis):
@@ -116,7 +117,7 @@ def test_end_to_end_render(tmp_path, capsys):
     video = make_video(tmp_path / "clip.mp4", seconds=20)
     make_transcript(tmp_path / "out" / "clip" / "_analysis" / "clip" / "transcript.json")
     rc = main(["run", str(video), "--out", str(tmp_path / "out"), "--whisper", "none", "--llm", "off",
-               "--platform", "reels", "--sponsored"])
+               "--platform", "reels", "--sponsored", "--handle", "@test"])
     assert rc == 0
     result = json.loads(capsys.readouterr().out)[0]
     info = json.loads((tmp_path / "out" / "clip" / "reels" / "work" / "render.json").read_text())

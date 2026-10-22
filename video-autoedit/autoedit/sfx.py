@@ -1,5 +1,5 @@
 """효과음 생성. 저작권 이슈를 피하려고 ffmpeg 신호 합성으로 만든다.
---sfx-dir 폴더에 whoosh.wav / pop.wav / ding.wav / boom.wav 를 두면 그 파일을 우선 사용."""
+--sfx-dir 폴더에 whoosh/pop/ding/boom/boing/riser(.wav/.mp3) 를 두면 그 파일을 우선 사용."""
 
 from __future__ import annotations
 
@@ -17,9 +17,13 @@ RECIPES = {
     "ding": "aevalsrc='0.5*sin(2*PI*1760*t)*exp(-t*5)+0.25*sin(2*PI*2637*t)*exp(-t*7)':d=0.9",
     # 저역 스윕 '쿵'
     "boom": "aevalsrc='0.9*sin(2*PI*(45+90*exp(-t*10))*t)*exp(-t*4.5)':d=0.8",
+    # 스프링처럼 흔들리는 '띠용'(유머)
+    "boing": "aevalsrc='0.6*sin(2*PI*(260+140*sin(2*PI*13*t)*exp(-t*3))*t)*exp(-t*4)':d=0.7",
+    # 반전 직전 긴장을 올리는 상승음
+    "riser": "aevalsrc='0.45*t*sin(2*PI*(180+700*t*t)*t)+0.08*t*sin(2*PI*(360+1400*t*t)*t)':d=1.0,afade=t=out:st=0.9:d=0.1",
 }
 
-GAIN_DB = {"whoosh": -10, "pop": -8, "ding": -12, "boom": -6}
+GAIN_DB = {"whoosh": -10, "pop": -8, "ding": -12, "boom": -6, "boing": -9, "riser": -12}
 
 
 def ensure_sfx(cache_dir: Path, user_dir: Path | None = None) -> dict[str, Path]:

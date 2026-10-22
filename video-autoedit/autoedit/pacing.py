@@ -10,6 +10,7 @@ from __future__ import annotations
 from .analyze import Analysis
 from .plan import EditPlan, Emphasis
 from .platforms import Platform
+from .styles import STYLES, Style
 from .scorecard import _visual_events
 from .timeline import build_timeline, map_time
 
@@ -60,13 +61,15 @@ def sanitize(plan: EditPlan, analyses: list[Analysis]) -> None:
     plan.sfx = thinned
 
 
-def fill_static_gaps(plan: EditPlan, analyses: list[Analysis], platform: Platform) -> int:
-    """platform.max_shot_seconds를 넘는 정지 구간 중앙에 줌 펀치를 넣는다. 추가 개수 반환."""
-    timeline = build_timeline(plan, analyses)
+def fill_static_gaps(plan: EditPlan, analyses: list[Analysis], platform: Platform,
+                     style: Style = STYLES["explainer"]) -> int:
+    """플랫폼·스타일 기준 최대 정지 구간을 넘는 곳 중앙에 줌 펀치를 넣는다. 추가 개수 반환."""
+    max_shot = platform.max_shot_seconds * style.pace_mult
+    timeline = build_timeline(plan, analyses, cut_silence=style.cut_silence)
     added = 0
     for _ in range(40):
         ev = _visual_events(plan, timeline, analyses)
-        gaps = [(ev[i], ev[i + 1]) for i in range(len(ev) - 1) if ev[i + 1] - ev[i] > platform.max_shot_seconds]
+        gaps = [(ev[i], ev[i + 1]) for i in range(len(ev) - 1) if ev[i + 1] - ev[i] > max_shot]
         if not gaps:
             break
         s, e = gaps[0]
@@ -74,7 +77,7 @@ def fill_static_gaps(plan: EditPlan, analyses: list[Analysis], platform: Platfor
         piece = next((p for p in timeline if p.out_start <= mid < p.out_end), None)
         if piece is None:
             break
-        t = round(piece.start + mid - piece.out_start, 3)
+        t = round(piece.start + (mid - piece.out_start) * piece.speed, 3)
         mapped = map_time(timeline, piece.source, t)
         if mapped is None or abs(mapped - mid) > 0.5:  # 후킹 프리뷰와 겹치는 구간 등: 더 못 메움
             break

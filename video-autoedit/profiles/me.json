@@ -1,0 +1,20 @@
+{
+  "name": "내 채널",
+  "handle": "@내계정",
+  "style": "explainer",
+  "platforms": "reels,shorts",
+  "brief": {
+    "industry": "general",
+    "goal": "reach",
+    "audience": "[누구에게 말하는 채널인지]",
+    "cta": "저장해두고 필요할 때 꺼내보세요"
+  },
+  "hashtags": ["#마케팅", "#실무팁"],
+  "sponsored": false,
+  "render": {
+    "font": "Noto Sans CJK KR",
+    "highlight": "#FFE500",
+    "assets": "../assets/me"
+  },
+  "notes": "개인 채널. 회사 제품·서비스를 소개하는 영상이면 --sponsored(경제적 이해관계 표기)를 켤 것."
+}

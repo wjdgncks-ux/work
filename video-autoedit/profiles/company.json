@@ -1,0 +1,22 @@
+{
+  "name": "회사 채널",
+  "handle": "@회사계정",
+  "style": "demo",
+  "platforms": "reels,shorts",
+  "brief": {
+    "industry": "general",
+    "goal": "conversion",
+    "audience": "[타겟 고객 한 줄로]",
+    "cta": "프로필 링크에서 자세히 보기"
+  },
+  "hashtags": ["#회사명", "#제품명"],
+  "sponsored": false,
+  "render": {
+    "font": "Noto Sans CJK KR",
+    "highlight": "#2A6AE0",
+    "assets": "../assets/company",
+    "bgm": null,
+    "reframe": "auto"
+  },
+  "notes": "회사 공식 채널. 제품 효능 단정 표현 금지(industry를 실제 업종으로 바꾸면 업종별 규정 검사가 추가됨)."
+}
