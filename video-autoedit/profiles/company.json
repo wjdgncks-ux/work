@@ -12,7 +12,7 @@
   "hashtags": ["#회사명", "#제품명"],
   "sponsored": false,
   "render": {
-    "font": "Noto Sans CJK KR",
+    "font": "auto",
     "highlight": "#2A6AE0",
     "assets": "../assets/company",
     "bgm": null,

@@ -12,7 +12,7 @@
   "hashtags": ["#마케팅", "#실무팁"],
   "sponsored": false,
   "render": {
-    "font": "Noto Sans CJK KR",
+    "font": "auto",
     "highlight": "#FFE500",
     "assets": "../assets/me"
   },

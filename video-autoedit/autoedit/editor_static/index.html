@@ -42,7 +42,8 @@ aside,#player{min-height:0;border-right:1px solid var(--line);background:var(--p
 #right{border-right:0;border-left:1px solid var(--line)}
 #left{display:grid;grid-template-columns:62px 1fr}
 #lnav{border-right:1px solid var(--line);padding-top:6px;display:flex;flex-direction:column;gap:2px;overflow:auto}
-#lnav button{background:none;border:0;border-radius:8px;margin:0 5px;padding:7px 0 5px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px}
+#lnav button{background:none;border:0;border-radius:8px;margin:0 5px;padding:5px 0 4px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;flex:none}
+@media (max-height:820px){#lnav button svg.i{width:16px;height:16px}#lnav button{padding:4px 0 3px;font-size:10.5px}}
 #lnav button:hover{color:var(--text);background:var(--panel2)}
 #lnav button.on{color:var(--accent);background:#14393b}
 #lpanel{overflow:auto;padding:12px}
@@ -163,6 +164,11 @@ aside,#player{min-height:0;border-right:1px solid var(--line);background:var(--p
 .opt small{display:block;color:var(--muted)}
 #prog{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;margin:10px 0}
 #prog i{display:block;height:100%;width:30%;background:var(--accent);animation:ld 1.2s infinite ease-in-out}
+#prog.det i{animation:none;transition:width .5s}
+.rq{display:flex;gap:6px;align-items:flex-start;padding:6px 8px;border:1px solid var(--line);border-radius:8px;margin-bottom:5px;background:var(--panel2)}
+.rq.done{opacity:.5;text-decoration:line-through}.rq a{color:var(--accent);cursor:pointer;font-family:monospace;white-space:nowrap}
+.vrow{display:flex;gap:6px;align-items:center;padding:7px 8px;border:1px solid var(--line);border-radius:8px;margin-bottom:5px;background:var(--panel2);flex-wrap:wrap}
+.vrow b{min-width:28px}.vrow a{color:var(--accent);text-decoration:none}
 @keyframes ld{0%{margin-left:-30%}100%{margin-left:100%}}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2a2a30;border:1px solid var(--line2);padding:9px 14px;border-radius:8px;display:none;max-width:560px;white-space:pre-wrap;z-index:30}
 #busy{position:fixed;inset:0;background:#0008;display:none;align-items:center;justify-content:center;z-index:25;font-size:14px}
@@ -172,9 +178,11 @@ kbd{background:#2a2a30;border:1px solid var(--line2);border-radius:4px;padding:0
 <body>
 <div id="app">
   <header id="top">
+    <button class="ghost" id="homeBtn" title="시작 화면으로" style="display:none">← 홈</button>
     <div id="logo"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9l5 3-5 3z"/></svg><b>숏폼 편집기</b></div>
     <span class="chip" id="ratioChip">9:16</span>
     <div id="pname"></div>
+    <span class="chip" id="statusChip" title="컨펌 상태(오른쪽 '수정 요청' 탭에서 변경)" style="cursor:pointer"></span>
     <span class="chip" id="saveState">저장됨</span>
     <span class="chip" id="score" title="AI 진단 점수(구조 결함 진단, 조회수 예측 아님)">진단 -</span>
     <button class="accent" id="exportBtn" title="Ctrl+E">내보내기</button>
@@ -249,6 +257,7 @@ kbd{background:#2a2a30;border:1px solid var(--line2);border-radius:4px;padding:0
 /* ================= 기본 도구 ================= */
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
+const encUrl = s => encodeURIComponent(s).replace(/'/g, "%27").replace(/\(/g, "%28").replace(/\)/g, "%29");
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const r3 = v => Math.round(v * 1000) / 1000;
@@ -357,8 +366,9 @@ async function load(keepT = 0) {
   S = await api("/api/state");
   plan = S.plan; diag = S.diagnosis; FPS = S.meta.platform.fps || 30;
   S.sources.forEach(s => { if (!sprites[s.index]) { const im = new Image(); im.src = s.thumbs.url; sprites[s.index] = im; } });
-  $("#pname").innerHTML = `<b>${esc(S.meta.name)}</b> · ${esc(S.meta.platform.label)}${S.meta.profile ? " · " + esc(S.meta.profile) : ""}`;
+  $("#pname").innerHTML = `<b>${esc(S.meta.name)}</b> · ${Object.values(S.platform_labels).map(esc).join(" + ")}${S.meta.profile ? " · " + esc(S.meta.profile) : ""}`;
   $("#ratioChip").textContent = `${S.meta.platform.width > S.meta.platform.height ? "16:9" : "9:16"} · ${S.meta.platform.width}×${S.meta.platform.height}`;
+  $("#homeBtn").style.display = S.app ? "" : "none"; renderStatus();
   relayout(); fitZoom(); setDirty(false);
   renderNav(); renderLeft(); renderTimeline(); renderProps(); renderScore(); updateTools();
   layoutFrame(); seek(keepT); loadSfx();
@@ -398,7 +408,7 @@ function renderLeft() {
   } else if (leftTab === "sticker") {
     P.innerHTML = `<div class="ph">자료(이미지·영상)<span class="sp"></span><button id="impAsset">${ic("plus")} 가져오기</button></div>
       ${S.assets.length ? `<div class="grid">${S.assets.map(a => `<div class="card" data-addasset="${esc(a)}" title="${esc(a)}">
-        <div class="th" style="background-image:url('/media/asset/${encodeURIComponent(a)}')">${/\.(mp4|mov)$/i.test(a) ? "▶ 영상" : ""}</div>
+        <div class="th" style="background-image:url('/media/asset/${encUrl(a)}')">${/\.(mp4|mov)$/i.test(a) ? "▶ 영상" : ""}</div>
         <div class="nm">${esc(a)}</div><button class="add">+</button></div>`).join("")}</div>`
       : `<div class="empty">자료가 없습니다.<br>가져오기로 이미지(그래프·제품 사진 등)를 추가하세요.</div>`}
       <p class="note">파일명을 대사 키워드와 맞춰 두면(예: 매출_그래프.png) 자동 편집 때도 알아서 들어갑니다.</p>`;
@@ -781,7 +791,9 @@ $("#rtabs").addEventListener("click", e => { const b = e.target.closest("[data-r
 function renderProps() {
   const B = $("#rbody");
   if (!sel) {
-    tabs([["proj", "프로젝트"], ["ai", "AI 진단"]]);
+    tabs([["proj", "프로젝트"], ["review", "수정 요청"], ["ver", "버전"], ["ai", "AI 진단"]]);
+    if (rightTab === "review") return renderReview(B);
+    if (rightTab === "ver") return renderVersions(B);
     if (rightTab === "ai") { B.innerHTML = `<div class="ph">AI 진단 ${diag ? diag.score : "-"}/100</div><div class="note">${esc(diag?.headline || "")}</div>${diagList()}`; return; }
     B.innerHTML = `
       <div class="fld"><label>업로드 제목 후보</label>${[0, 1, 2].map(i => `<input data-title="${i}" value="${esc(plan.title_candidates[i] ?? "")}" style="margin-bottom:5px">`).join("")}</div>
@@ -1132,7 +1144,10 @@ document.addEventListener("keydown", e => {
   if (k === "end") return seek(L.total);
   if (k === "escape") { sel = null; renderTimeline(); renderProps(); updateTools(); }
 });
-window.addEventListener("beforeunload", e => { if (dirty) { save(); e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("beforeunload", e => {
+  if (reviewPending) { navigator.sendBeacon("/api/review", JSON.stringify(reviewPending)); reviewPending = null; }
+  if (dirty) { navigator.sendBeacon("/api/save", JSON.stringify({plan})); setDirty(false); }
+});
 window.addEventListener("resize", () => { renderTimeline(); });
 
 /* ================= 내보내기 ================= */
@@ -1142,9 +1157,10 @@ function openExport() {
   $("#mbox").innerHTML = `<h2><span>내보내기</span><button class="ghost" id="mClose">✕</button></h2>
     <div><video id="mvid" controls></video></div>
     <div>
-      <div class="opt ${exportPreview ? "" : "on"}" data-q="final"><input type="radio" ${exportPreview ? "" : "checked"}><div><b>최종 (업로드용)</b><small>${m.platform.width}×${m.platform.height} · ${m.platform.fps}fps · H.264 · 음량 −14 LUFS</small></div></div>
+      <div class="opt ${exportPreview ? "" : "on"}" data-q="final"><input type="radio" ${exportPreview ? "" : "checked"}><div><b>최종 (업로드용)</b><small>${m.platform.width}×${m.platform.height} · ${m.platform.fps}fps · H.264 · 음량 −14 LUFS<br>${Object.values(S.platform_labels).map(esc).join(" · ")} 파일${Object.keys(S.platform_labels).length > 1 ? "을 각각(자막 위치를 플랫폼 화면에 맞춤)" : ""} 만듭니다</small></div></div>
       <div class="opt ${exportPreview ? "on" : ""}" data-q="preview"><input type="radio" ${exportPreview ? "checked" : ""}><div><b>빠른 미리보기</b><small>해상도 절반 · 빠른 인코딩 — 확인용</small></div></div>
-      <div class="note">AI 진단 <b>${diag ? diag.score : "-"}</b>/100 · 길이 ${sec(L.total)} · 저장 위치<br><span style="font-family:monospace;user-select:text">${esc(m.dir)}</span></div>
+      ${exportPreview ? "" : `<label style="display:flex;gap:6px;align-items:center;margin:4px 0 8px"><input type="checkbox" id="mReq" checked> 끝나면 '컨펌 요청' 상태로 표시</label>`}
+      <div class="note">AI 진단 <b>${diag ? diag.score : "-"}</b>/100 · 길이 ${sec(L.total)} · ${exportPreview ? "preview.mp4를 덮어씁니다" : `새 버전 <b>v${(S.versions.at(-1)?.v || 0) + 1}</b>로 저장(이전 버전 유지)`}<br><span style="font-family:monospace;user-select:text">${esc(m.dir)}</span></div>
       <div id="mstate"></div>
       <div style="display:flex;gap:8px;margin-top:10px"><button class="accent" id="mGo" style="flex:1">내보내기</button><a id="mDl" style="display:none"><button>다운로드</button></a></div>
     </div>`;
@@ -1157,23 +1173,91 @@ function showExportResult(o) {
 }
 $("#modal").addEventListener("click", async e => {
   if (e.target.id === "modal" || e.target.closest("#mClose")) return $("#modal").classList.remove("on");
+  if (e.target.id === "mReveal") { e.preventDefault(); const j = await api("/api/reveal", {}); if (!j.ok) toast("폴더 위치: " + j.path, 7000); return; }
   const q = e.target.closest("[data-q]"); if (q) { exportPreview = q.dataset.q === "preview"; openExport(); return; }
   if (e.target.closest("#mGo")) {
     if (dirty) await save();
-    $("#mGo").disabled = true; $("#mstate").innerHTML = `<div id="prog"><i></i></div><div class="note" id="mtime">렌더링 중…</div>`;
-    try { const j = await api("/api/render", {plan, preview: exportPreview}); if (j.state === "running") pollExport(); }
+    $("#mGo").disabled = true; $("#mstate").innerHTML = `<div id="prog" class="det"><i style="width:2%"></i></div><div class="note" id="mtime">렌더링 준비 중…</div>`;
+    try { const j = await api("/api/render", {plan, preview: exportPreview, request_review: !exportPreview && !!$("#mReq")?.checked}); if (j.state === "running") pollExport(); }
     catch (err) { $("#mstate").innerHTML = `<div class="sev-상">${esc(err.message)}</div>`; $("#mGo").disabled = false; }
   }
 });
 async function pollExport() {
   const j = await api("/api/render/status");
-  if (j.state === "running") { const el = $("#mtime"); if (el) el.textContent = `렌더링 중… ${Math.round(Date.now() / 1000 - j.started)}초`; return setTimeout(pollExport, 1000); }
+  if (j.state === "running") {
+    const el = $("#mtime"), bar = $("#prog i"), p = j.progress || 0, sec_ = Math.round(Date.now() / 1000 - j.started);
+    if (bar) bar.style.width = Math.max(2, Math.round(p * 100)) + "%";
+    if (el) el.textContent = `렌더링 중… ${Math.round(p * 100)}% · ${sec_}초` + (p > 0.08 ? ` · 약 ${Math.max(1, Math.round(sec_ / p - sec_))}초 남음` : "");
+    return setTimeout(pollExport, 1000);
+  }
   if (j.state === "error") { $("#mstate").innerHTML = `<div class="sev-상" style="white-space:pre-wrap;max-height:160px;overflow:auto">${esc(j.error)}</div>`; $("#mGo").disabled = false; return; }
-  const st = await api("/api/state"); S.outputs = st.outputs; diag = st.diagnosis; renderScore();
-  $("#mstate").innerHTML = `<div class="note" style="color:#7ff0b8">완료 ${j.elapsed}초 · 음량 ${j.info.loudness_lufs} LUFS · ${j.info.size} · 규격 ${j.info.spec_ok ? "통과" : "확인 필요"}</div>`;
+  const st = await api("/api/state"); Object.assign(S, {outputs: st.outputs, versions: st.versions, review: st.review, history: st.history}); diag = st.diagnosis; renderScore(); renderStatus();
+  const v = j.version;
+  $("#mstate").innerHTML = `<div class="note" style="color:#7ff0b8">완료 ${j.elapsed}초 · 음량 ${j.info.loudness_lufs} LUFS · ${j.info.size} · 규격 ${j.info.spec_ok ? "통과" : "확인 필요"}</div>`
+    + (v ? `<div class="vrow" style="margin-top:6px"><b>v${v}</b><span style="flex:1"></span><a href="/media/review/${encodeURIComponent(`검수표_v${v}.html`)}" target="_blank">검수표 열기</a>
+        <a href="/media/review/${encodeURIComponent(`업로드문구_v${v}.txt`)}" target="_blank">업로드 문구</a><a href="#" id="mReveal">폴더 열기</a></div>
+        <div class="note">컨펌자에게 <b>완성본 mp4 + 검수표</b>를 보내세요.</div>` : "");
   $("#mGo").disabled = false; showExportResult(S.outputs[j.preview ? "preview" : "final"]);
 }
 $("#exportBtn").onclick = openExport;
+
+/* ================= 컨펌: 상태·수정 요청·버전 ================= */
+const STATUS_COLOR = {"편집 중": "#3a3a42", "컨펌 요청": "#2a6ae0", "수정 요청": "#c2410c", "승인": "#15803d", "업로드 완료": "#555"};
+function renderStatus() { const c = $("#statusChip"), st = S.review?.status || "편집 중"; c.textContent = st; c.style.background = STATUS_COLOR[st]; c.style.color = "#fff"; }
+$("#statusChip").onclick = () => { sel = null; rightTab = "review"; renderTimeline(); renderProps(); updateTools(); };
+function parseReview(memo) {   // '0:12 자막 오타', '12초 컷', '0:20~0:24 빼기' → [{text, t}]
+  return memo.split(/\n+/).map(x => x.trim()).filter(Boolean).map(text => {
+    let m = /(\d{1,2}):(\d{2})(?:\.(\d))?/.exec(text), t = null;
+    if (m) t = +m[1] * 60 + +m[2] + (m[3] ? +m[3] / 10 : 0);
+    else if ((m = /(\d+(?:\.\d)?)\s*초/.exec(text))) t = +m[1];
+    return {text, t};
+  });
+}
+let reviewTimer = null, reviewPending = null;
+function saveReview(patch) {
+  Object.assign(S.review, patch); renderStatus(); reviewPending = {...(reviewPending || {}), ...patch};
+  clearTimeout(reviewTimer); reviewTimer = setTimeout(flushReview, 400);
+}
+async function flushReview() {   // 화면을 떠나기 전에 대기 중인 저장을 바로 보낸다(유실 방지)
+  clearTimeout(reviewTimer); if (!reviewPending) return; const patch = reviewPending; reviewPending = null;
+  try { S.review = (await api("/api/review", patch)).review; } catch (e) { toast(e.message, 5000); }
+}
+function renderReview(B) {
+  const r = S.review, items = parseReview(r.memo || ""), v = S.versions.length ? S.versions[S.versions.length - 1].v : null;
+  B.innerHTML = `<div class="fld"><label>컨펌 상태</label><select id="rvStatus">${S.review_states.map(x => `<option ${x === r.status ? "selected" : ""}>${x}</option>`).join("")}</select></div>
+    <div class="fld"><label>컨펌자 수정 요청 (메신저 내용을 그대로 붙여 넣기)</label>
+      <textarea id="rvMemo" rows="5" placeholder="예)\n0:12 자막 '되요' → '돼요'\n0:20~0:24 컷 빼주세요\n마지막 문구 더 짧게">${esc(r.memo || "")}</textarea>
+      <div class="note">${v ? `시간은 보낸 완성본 <b>v${v}</b> 기준입니다. 그 뒤 컷을 바꿨다면 위치가 달라졌을 수 있어요.` : "아직 내보낸 완성본이 없습니다."}</div></div>
+    ${items.map((it, k) => `<div class="rq ${(r.done || []).includes(k) ? "done" : ""}"><input type="checkbox" data-rqdone="${k}" ${(r.done || []).includes(k) ? "checked" : ""}>
+      ${it.t != null ? `<a data-rqt="${it.t}">${Math.floor(it.t / 60)}:${String(Math.floor(it.t % 60)).padStart(2, "0")}</a>` : ""}<span>${esc(it.text)}</span></div>`).join("")}
+    ${items.length ? `<div class="note">${(r.done || []).length}/${items.length} 반영 · 다 고치면 '내보내기'로 새 버전을 만들어 다시 보내세요.</div>` : ""}`;
+}
+function renderVersions(B) {
+  const vs = [...S.versions].reverse();
+  B.innerHTML = `<div class="ph">완성본 버전 <span class="sp"></span><button id="revealBtn">폴더 열기</button></div>
+    ${vs.map(v => `<div class="vrow"><b>v${v.v}</b><span class="note" style="margin:0;flex:1">${esc(v.at)} · 진단 ${v.score}</span>
+      <a href="/media/output?v=${v.v}&download=1" title="${esc(S.platform_labels[S.meta.platform.key] || "")}">받기</a>${Object.keys(v.extra || {}).map(k => `<a href="/media/output?v=${v.v}&p=${k}&download=1">${esc((S.platform_labels[k] || k).replace("Instagram ", "").replace("YouTube ", ""))}</a>`).join("")}<a href="/media/review/${encodeURIComponent(`검수표_v${v.v}.html`)}" target="_blank">검수표</a><a href="/media/review/${encodeURIComponent(`업로드문구_v${v.v}.txt`)}" target="_blank">문구</a></div>`).join("")
+      || `<div class="note">아직 없습니다. 오른쪽 위 '내보내기'로 최종본을 만들면 v1부터 쌓입니다(이전 버전은 지워지지 않음).</div>`}
+    <div class="note">컨펌자에게는 <b>완성본 mp4 + 검수표</b>를 보내세요. 검수표에 체크리스트·업로드 문구·자동 점검 결과가 들어 있습니다.</div>
+    <div class="sub" style="margin-top:16px">자동 백업 (편집 내용 · 1분 단위)</div>
+    ${S.history.length ? S.history.map(h => `<div class="vrow"><span style="flex:1">${esc(h.at)}</span><button data-restore="${esc(h.file)}">이 시점으로 되돌리기</button></div>`).join("")
+      : `<div class="note">편집하면 자동으로 쌓입니다.</div>`}`;
+}
+rb.addEventListener("input", e => {
+  if (e.target.id === "rvMemo") { const memo = e.target.value; saveReview({memo}); clearTimeout(rb._rv); rb._rv = setTimeout(() => { if (rightTab === "review" && !sel) { const pos = e.target.selectionStart; renderProps(); const ta = $("#rvMemo"); ta.focus(); ta.selectionStart = ta.selectionEnd = pos; } }, 900); }
+});
+rb.addEventListener("change", e => {
+  if (e.target.id === "rvStatus") { saveReview({status: e.target.value}); toast(`상태: ${e.target.value}`); }
+  else if (e.target.dataset.rqdone !== undefined) { const k = +e.target.dataset.rqdone, done = new Set(S.review.done || []); e.target.checked ? done.add(k) : done.delete(k); saveReview({done: [...done]}); renderProps(); }
+});
+rb.addEventListener("click", async e => {
+  const t = e.target.closest("[data-rqt],[data-restore],#revealBtn"); if (!t) return;
+  if (t.dataset.rqt) { seek(+t.dataset.rqt); return; }
+  if (t.id === "revealBtn") { const j = await api("/api/reveal", {}); if (!j.ok) toast("폴더 위치: " + j.path, 7000); return; }
+  if (t.dataset.restore) { if (!confirm("이 시점의 편집으로 되돌릴까요? (지금 상태도 되돌리기로 돌아올 수 있음)")) return;
+    const j = await api("/api/history/" + encodeURIComponent(t.dataset.restore)); const b = snapshot(); plan = j.plan; commit(b); toast("되돌렸습니다"); }
+});
+$("#homeBtn").onclick = async () => { await flushReview(); if (dirty) await save(); location.href = "/"; };
 
 /* ================= 진단 점수 ================= */
 function renderScore() {

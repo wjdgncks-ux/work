@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .analyze import Analysis
+from .doctor import resolve_font
 from .media import ffmpeg, probe
 from .plan import EditPlan
 from .platforms import Platform
@@ -18,7 +19,7 @@ from .timeline import Caption, Piece, map_time, narration_spans, total_duration
 
 @dataclass
 class RenderOptions:
-    font: str = "Noto Sans CJK KR"
+    font: str = "auto"  # project.render_options에서 OS 글꼴로 해석
     fonts_dir: Path | None = None
     reframe: str = "auto"  # auto / crop / blur
     sfx_dir: Path | None = None
@@ -35,6 +36,18 @@ class RenderOptions:
 
 def preview_platform(p: Platform) -> Platform:
     return replace(p, width=p.width // 2 // 2 * 2, height=p.height // 2 // 2 * 2)
+
+
+def ff_path(path) -> str:
+    """필터 옵션 값으로 쓸 경로를 ffmpeg 규칙대로 두 번 이스케이프한다(따옴표 없이).
+    1단계(옵션 값): \\ ' :   2단계(필터 그래프): \\ ' [ ] , ;
+    작은따옴표·쉼표·콜론(윈도우 C:)·대괄호가 든 폴더 이름에서도 깨지지 않게."""
+    v = str(path).replace("\\", "/")
+    for ch in ("\\", "'", ":"):
+        v = v.replace(ch, "\\" + ch)
+    for ch in ("\\", "'", "[", "]", ",", ";"):
+        v = v.replace(ch, "\\" + ch)
+    return v
 
 
 def _reframe_filter(a: Analysis, p: Platform, mode: str) -> str:
@@ -67,7 +80,7 @@ def _piece_effects(plan: EditPlan, piece: Piece, p: Platform, zoom: float) -> st
 
 
 def render_pieces(plan: EditPlan, timeline: list[Piece], analyses: list[Analysis], p: Platform,
-                  opts: RenderOptions, work: Path) -> Path:
+                  opts: RenderOptions, work: Path, progress=None) -> Path:
     work.mkdir(parents=True, exist_ok=True)
     listing = []
     for i, piece in enumerate(timeline):
@@ -87,7 +100,9 @@ def render_pieces(plan: EditPlan, timeline: list[Piece], analyses: list[Analysis
                "-c:v", "libx264", "-preset", "ultrafast" if opts.preview else "veryfast",
                "-crf", "26" if opts.preview else "16", "-g", str(p.fps),
                "-c:a", "pcm_s16le", str(out))
-        listing.append(f"file '{out.resolve()}'")
+        listing.append("file '" + str(out.resolve()).replace("'", "'\\''") + "'")  # 경로의 작은따옴표 이스케이프
+        if progress:
+            progress((i + 1) / len(timeline))
     concat = work / "concat.txt"
     concat.write_text("\n".join(listing) + "\n", encoding="utf-8")
     body = work / "body.mkv"
@@ -133,7 +148,7 @@ def compose(plan: EditPlan, timeline: list[Piece], captions: list[Caption], anal
         if t is not None and e.keyword:
             marks.append((t, e.keyword))
     ass = work / "subs.ass"
-    ass.write_text(build_ass(p, captions, _overlays(plan, timeline, dur, opts.handle), marks, opts.font,
+    ass.write_text(build_ass(p, captions, _overlays(plan, timeline, dur, opts.handle), marks, resolve_font(opts.font),
                              opts.highlight), encoding="utf-8")
 
     inputs: list[str] = ["-i", str(body)]
@@ -166,9 +181,8 @@ def compose(plan: EditPlan, timeline: list[Piece], captions: list[Caption], anal
                       f":enable='between(t,{t:.3f},{t + d:.3f})'[vo{k}]")
         cur = f"[vo{k}]"
         n += 1
-    ass_arg = str(ass).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
-    fonts = f":fontsdir='{opts.fonts_dir}'" if opts.fonts_dir else ""
-    vchain.append(f"{cur}ass='{ass_arg}'{fonts},format=yuv420p[vout]")
+    fonts = f":fontsdir={ff_path(opts.fonts_dir)}" if opts.fonts_dir else ""
+    vchain.append(f"{cur}ass=filename={ff_path(ass)}{fonts},format=yuv420p[vout]")
 
     # 오디오: 원본 목소리(나레이션 구간 덕킹) + 나레이션 + 효과음 + (선택) BGM 덕킹 → 라우드니스 정규화
     sfx_files = ensure_sfx(work.parent / "_sfx", opts.sfx_dir)
@@ -257,13 +271,21 @@ def verify(out: Path, p: Platform) -> dict:
 
 
 def render(plan: EditPlan, timeline: list[Piece], captions: list[Caption], analyses: list[Analysis],
-           p: Platform, opts: RenderOptions, out: Path, work: Path) -> dict:
+           p: Platform, opts: RenderOptions, out: Path, work: Path, progress=None, body: Path | None = None) -> dict:
+    """progress(0~1): 조각 렌더링 75%, 합성 20%, 음량 보정·검증 5%.
+    body: 같은 해상도로 이미 이어 붙인 본편이 있으면 재사용(플랫폼별 파일은 자막 위치만 다르므로)."""
+    report = progress or (lambda f: None)
+    work.mkdir(parents=True, exist_ok=True)
     if opts.preview:
         p = preview_platform(p)
-    body = render_pieces(plan, timeline, analyses, p, opts, work / "pieces")
+    if body is None:
+        body = render_pieces(plan, timeline, analyses, p, opts, work / "pieces", progress=lambda f: report(0.75 * f))
+    report(0.78)
     compose(plan, timeline, captions, analyses, p, opts, body, out, work)
+    report(0.95)
     correct_loudness(out, p.loudness_lufs)
     result = verify(out, p)
     result["preview"] = opts.preview
     (work / ("preview.json" if opts.preview else "render.json")).write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+    report(1.0)
     return result

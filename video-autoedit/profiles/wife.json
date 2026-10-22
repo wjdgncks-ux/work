@@ -12,7 +12,7 @@
   "hashtags": ["#일상", "#공감"],
   "sponsored": false,
   "render": {
-    "font": "Noto Sans CJK KR",
+    "font": "auto",
     "highlight": "#FF5FA2",
     "assets": "../assets/wife"
   },

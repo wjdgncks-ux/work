@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>숏폼 편집기 · 홈</title>
+<style>
+:root{--bg:#151517;--panel:#1d1d20;--panel2:#232327;--line:#2c2c31;--line2:#38383e;--text:#e8e8ea;--muted:#8d8d95;--dim:#5f5f66;--accent:#00c4cc;--accent2:#1fd5dd;--danger:#ff5c5c}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.5 -apple-system,"Segoe UI","Noto Sans KR","Malgun Gothic",sans-serif}
+button,select,input,textarea{font:inherit;color:var(--text)}
+button{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:7px 14px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:#55555d}button:disabled{opacity:.45;cursor:default}
+button.accent{background:var(--accent);border-color:var(--accent);color:#06292b;font-weight:700}
+button.accent:hover:not(:disabled){background:var(--accent2)}
+button.ghost{background:transparent;border-color:transparent}
+input,select,textarea{background:#121214;border:1px solid var(--line2);border-radius:8px;padding:8px 10px}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+svg.i{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
+#app{display:grid;grid-template-columns:200px 1fr;height:100vh}
+@media (max-width:900px){#app{grid-template-columns:64px 1fr}#side .lbl,#side .brand b{display:none}}
+#side{background:#18181b;border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:4px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:15px;margin:0 6px 16px}
+.brand b{background:linear-gradient(135deg,#00c4cc,#7c5cff);-webkit-background-clip:text;color:transparent}
+#side button{display:flex;align-items:center;gap:10px;background:none;border:0;border-radius:8px;padding:9px 10px;color:var(--muted);text-align:left}
+#side button:hover{background:var(--panel2);color:var(--text)}#side button.on{background:#14393b;color:var(--accent)}
+#side .sp{flex:1}
+#main{overflow:auto;padding:24px 28px}
+@media (max-width:900px){#main{padding:16px}}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:26px 0 12px;display:flex;align-items:center;gap:10px}
+.muted{color:var(--muted)}.small{font-size:12px}
+#drop{border:2px dashed var(--line2);border-radius:14px;padding:28px;display:flex;align-items:center;gap:20px;cursor:pointer;background:linear-gradient(135deg,#17262a,#1d1d24);transition:.15s}
+#drop:hover,#drop.over{border-color:var(--accent);background:linear-gradient(135deg,#123338,#1f1f2b)}
+#drop .plus{width:64px;height:64px;border-radius:16px;background:var(--accent);color:#06292b;display:flex;align-items:center;justify-content:center;font-size:36px;font-weight:300;flex:none}
+#drop b{font-size:17px}
+.banner{border:1px solid #6a2b2b;background:#2a1717;border-radius:10px;padding:12px 14px;margin-bottom:16px}
+.banner b{color:#ff8f8f}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.filters button{padding:4px 12px;border-radius:999px}.filters button.on{border-color:var(--accent);color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
+.pc{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:pointer;position:relative}
+.pc:hover{border-color:#55555d}
+.pc .cv{aspect-ratio:9/12;background:#000 center/cover no-repeat;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:28px}
+.pc .body{padding:8px 10px}
+.pc .nm{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc .meta{color:var(--muted);font-size:11px;display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+.pc .st{position:absolute;left:8px;top:8px;font-size:11px;padding:1px 8px;border-radius:999px;font-weight:700}
+.pc .ver{position:absolute;right:8px;top:8px;font-size:11px;padding:1px 6px;border-radius:5px;background:#000a}
+.pc .acts{position:absolute;right:8px;bottom:58px;display:flex;gap:4px;opacity:0;transition:.12s}.pc:hover .acts{opacity:1}
+.pc .acts button{padding:3px 8px;font-size:11px;background:#000c}
+.st-편집중{background:#3a3a42;color:#ddd}.st-컨펌요청{background:#2a6ae0;color:#fff}.st-수정요청{background:#c2410c;color:#fff}.st-승인{background:#15803d;color:#fff}.st-업로드완료{background:#555;color:#ddd}
+.empty{color:var(--dim);text-align:center;padding:40px}
+/* 모달 */
+#modal{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:10}
+#modal.on{display:flex}
+#mbox{width:min(820px,94vw);max-height:92vh;overflow:auto;background:var(--panel);border:1px solid var(--line2);border-radius:14px;padding:20px 22px}
+#mbox h3{margin:0 0 4px;font-size:17px;display:flex;align-items:center}#mbox h3 span{flex:1}
+.sec{margin-top:16px}.sec>.t{font-weight:700;margin-bottom:8px}
+.files .f{display:flex;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px}
+.files .f .bar{flex:1;height:5px;background:var(--panel2);border-radius:3px;overflow:hidden}.files .f .bar i{display:block;height:100%;background:var(--accent)}
+.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+.opt{border:1px solid var(--line2);border-radius:10px;padding:10px 12px;cursor:pointer}
+.opt:hover{border-color:#55555d}.opt.on{border-color:var(--accent);background:#14393b66}
+.opt b{display:block}.opt small{color:var(--muted)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+label.ck{display:flex;gap:8px;align-items:center;cursor:pointer;padding:4px 0}
+.foot{display:flex;gap:10px;justify-content:flex-end;position:sticky;bottom:-20px;margin:20px -22px -20px;padding:14px 22px;background:var(--panel);border-top:1px solid var(--line)}
+#prog{height:8px;background:var(--panel2);border-radius:4px;overflow:hidden;margin:14px 0 8px}#prog i{display:block;height:100%;background:var(--accent);transition:width .4s}
+.set{max-width:640px}.set .fld{margin-bottom:16px}.set label{display:block;color:var(--muted);margin-bottom:5px}.set input,.set select{width:100%}
+.chk{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px}
+.chk .m{width:20px;text-align:center;font-weight:800}.ok{color:#7ff0b8}.bad{color:#ff8f8f}.opt-miss{color:var(--muted)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2a2a30;border:1px solid var(--line2);padding:10px 16px;border-radius:8px;display:none;max-width:560px;white-space:pre-wrap;z-index:30}
+#busy{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:25;font-size:15px;text-align:center;padding:20px}
+</style>
+</head>
+<body>
+<div id="app">
+  <nav id="side">
+    <div class="brand"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9l5 3-5 3z"/></svg><b>숏폼 편집기</b></div>
+    <button data-page="home" class="on"><svg class="i" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span class="lbl">홈</span></button>
+    <button data-page="settings"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="lbl">설정·점검</span></button>
+    <span class="sp"></span>
+    <button id="openWs" title="작업 폴더 열기"><svg class="i" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="lbl">작업 폴더</span></button>
+  </nav>
+  <main id="main"></main>
+</div>
+<div id="modal"><div id="mbox"></div></div>
+<div id="busy"><div id="busyMsg"></div></div>
+<div id="toast"></div>
+<input type="file" id="filePick" accept="video/*" multiple hidden>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const encUrl = s => encodeURIComponent(s).replace(/'/g, "%27").replace(/\(/g, "%28").replace(/\)/g, "%29");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const toast = (m, ms = 3200) => { const t = $("#toast"); t.textContent = m; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", ms); };
+const busy = (on, m = "") => { $("#busy").style.display = on ? "flex" : "none"; $("#busyMsg").innerHTML = m; };
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j;
+}
+let H = null, page = "home", filter = {profile: "", status: ""};
+const STYLE_OF = {explainer: "설명형", funny: "유머", demo: "시연"};
+const profName = k => (H.profiles.find(p => p.key === k) || {}).name || (k ? k : "프로필 없음");
+
+async function load() { H = await api("/app/api/home"); render(); if (H.job.state === "running") showProgress(); }
+function render() { $$("#side [data-page]").forEach(b => b.classList.toggle("on", b.dataset.page === page)); page === "home" ? renderHome() : renderSettings(); }
+
+/* ---------------- 홈 ---------------- */
+function renderHome() {
+  const bad = H.checks.filter(c => c.required && !c.ok);
+  const list = H.projects.filter(p => (!filter.profile || p.profile === filter.profile) && (!filter.status || p.status === filter.status));
+  $("#main").innerHTML = `
+    <h1>${H.settings.user_name ? esc(H.settings.user_name) + "님, " : ""}오늘은 어떤 영상을 만들까요?</h1>
+    <div class="muted small" style="margin-bottom:16px">작업 폴더: ${esc(H.workspace)}</div>
+    ${bad.length ? `<div class="banner"><b>먼저 해결해야 할 설치 문제 ${bad.length}개</b> — ${bad.map(c => esc(c.name)).join(", ")}
+      <div class="small" style="margin-top:4px">${bad.map(c => "→ " + esc(c.fix)).join("<br>")}</div>
+      <button style="margin-top:8px" data-page="settings">설정·점검 열기</button></div>` : ""}
+    <div id="drop"><div class="plus">+</div><div><b>새 프로젝트</b><div class="muted">촬영한 영상을 여기에 끌어다 놓거나 눌러서 고르세요. 여러 개도 됩니다.</div>
+      <div class="muted small">AI가 컷·후킹·자막·효과음을 먼저 편집해 두고, 편집기에서 다듬습니다.</div></div></div>
+    <h2>최근 프로젝트 <span class="muted small">${list.length}개</span></h2>
+    <div class="filters">
+      <button data-fp="" class="${!filter.profile ? "on" : ""}">전체 채널</button>
+      ${H.profiles.map(p => `<button data-fp="${esc(p.key)}" class="${filter.profile === p.key ? "on" : ""}">${esc(p.name)}</button>`).join("")}
+      <span style="width:12px"></span>
+      <button data-fs="" class="${!filter.status ? "on" : ""}">모든 상태</button>
+      ${H.review_states.map(s => `<button data-fs="${s}" class="${filter.status === s ? "on" : ""}">${s}</button>`).join("")}
+    </div>
+    ${list.length ? `<div class="grid">${list.map(p => `
+      <div class="pc" data-open="${esc(p.id)}" title="${esc(p.id)}">
+        <div class="cv" style="${p.cover ? `background-image:url('/app/media/cover?id=${encUrl(p.id)}&file=${encUrl(p.cover)}')` : ""}">${p.cover ? "" : "▶"}</div>
+        <span class="st st-${p.status.replace(/\s/g, "")}">${esc(p.status)}</span>
+        ${p.versions ? `<span class="ver">v${p.versions}</span>` : ""}
+        <div class="acts"><button data-reveal="${esc(p.id)}">폴더</button>
+          <select data-status="${esc(p.id)}">${H.review_states.map(s => `<option ${s === p.status ? "selected" : ""}>${s}</option>`).join("")}</select></div>
+        <div class="body"><div class="nm">${esc(p.name)}</div>
+          <div class="meta"><span>${esc(profName(p.profile))}</span><span>${esc(p.platform_label)}</span><span>${STYLE_OF[p.style] || ""}</span></div>
+          <div class="meta"><span>${esc(p.updated_text)}</span>${p.missing_source ? `<span class="bad">원본 없음</span>` : ""}</div></div>
+      </div>`).join("")}</div>` : `<div class="empty">아직 프로젝트가 없습니다. 위에 영상을 끌어다 놓아 시작하세요.</div>`}`;
+}
+
+/* 업로드 → 새 프로젝트 설정 */
+let uploads = [], cfg = null;
+function pickFiles() { $("#filePick").value = ""; $("#filePick").click(); }
+$("#filePick").onchange = e => startNew([...e.target.files]);
+function startNew(files) {
+  files = files.filter(f => /^video\//.test(f.type) || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(f.name));
+  if (!files.length) return toast("영상 파일을 골라 주세요");
+  if (!cfg) { const p = H.profiles[0]; cfg = {profile: p?.key || "", style: p?.style || "explainer", platforms: (p?.platforms || "reels").split(","), mode: "each", topic: "", sponsored: false, captions: H.settings.whisper_installed, auto_render: false}; }
+  files.forEach(f => uploads.push({file: f, name: f.name, progress: 0, done: false, error: ""}));
+  openNew(); files.forEach(f => upload(uploads.find(u => u.file === f)));
+}
+function upload(u) {
+  const x = new XMLHttpRequest();
+  x.open("POST", `/app/api/upload?name=${encodeURIComponent(u.name)}`);
+  x.upload.onprogress = e => { if (e.lengthComputable) { u.progress = e.loaded / e.total; drawFiles(); } };
+  x.onload = () => { try { const j = JSON.parse(x.responseText); if (x.status !== 200) throw new Error(j.error); Object.assign(u, {done: true, progress: 1, id: j.id, info: `${j.duration}초 · ${j.size}`}); } catch (err) { u.error = err.message; } drawFiles(); };
+  x.onerror = () => { u.error = "업로드 실패"; drawFiles(); };
+  x.send(u.file);
+}
+function drawFiles() {
+  const el = $("#files"); if (!el) return;
+  el.innerHTML = uploads.map((u, k) => `<div class="f"><span style="min-width:0;flex:2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u.name)}</span>
+    ${u.error ? `<span class="bad">${esc(u.error)}</span>` : u.done ? `<span class="muted">${esc(u.info)}</span>` : `<div class="bar"><i style="width:${Math.round(u.progress * 100)}%"></i></div>`}
+    <button class="ghost" data-rm="${k}" title="빼기">✕</button></div>`).join("");
+  const go = $("#goBtn"); if (go) go.disabled = !uploads.some(u => u.done) || uploads.some(u => !u.done && !u.error);
+  const mode = $("#modeRow"); if (mode) mode.style.display = uploads.filter(u => u.done).length > 1 ? "" : "none";
+}
+function openNew() {
+  const prof = H.profiles.find(p => p.key === cfg.profile);
+  $("#mbox").innerHTML = `<h3><span>새 프로젝트</span><button class="ghost" id="mClose">✕</button></h3>
+    <div class="sec"><div class="t">영상</div><div class="files" id="files"></div><button id="addMore">+ 영상 더 넣기</button>
+      <div class="row" id="modeRow" style="margin-top:8px"><label class="ck"><input type="radio" name="mode" value="each" ${cfg.mode === "each" ? "checked" : ""}> 영상마다 따로 편집</label>
+        <label class="ck"><input type="radio" name="mode" value="merge" ${cfg.mode === "merge" ? "checked" : ""}> 여러 영상을 한 편으로</label></div></div>
+    <div class="sec"><div class="t">어느 채널에 올리나요?</div><div class="opts">
+      ${H.profiles.map(p => `<div class="opt ${cfg.profile === p.key ? "on" : ""}" data-prof="${esc(p.key)}"><b>${esc(p.name)}</b><small>${esc(p.handle || "")} · ${STYLE_OF[p.style] || ""}</small></div>`).join("")}
+      <div class="opt ${!cfg.profile ? "on" : ""}" data-prof=""><b>채널 지정 안 함</b><small>기본 설정</small></div></div>
+      ${prof?.notes ? `<div class="muted small" style="margin-top:6px">${esc(prof.notes)}</div>` : ""}</div>
+    <div class="sec"><div class="t">어떤 영상인가요?</div><div class="opts">
+      ${H.styles.map(s => `<div class="opt ${cfg.style === s.key ? "on" : ""}" data-style="${s.key}"><b>${esc(s.label)}</b><small>${esc(s.desc)}</small></div>`).join("")}</div></div>
+    <div class="sec"><div class="t">어디에 올리나요?</div><div class="row">
+      ${H.platforms.map(p => `<label class="ck"><input type="checkbox" data-plat="${p.key}" ${cfg.platforms.includes(p.key) ? "checked" : ""}> ${esc(p.label)}</label>`).join("")}</div></div>
+    <div class="sec"><div class="t">추가 설정 <span class="muted small">(비워도 됩니다)</span></div>
+      <input id="topic" placeholder="주제 한 줄 — 예) 아침 루틴 3가지" value="${esc(cfg.topic)}" style="width:100%;margin-bottom:8px">
+      <label class="ck"><input type="checkbox" id="spon" ${cfg.sponsored ? "checked" : ""}> 협찬·광고·회사 제품이 나옴 (유료광고 표시)</label>
+      <label class="ck"><input type="checkbox" id="caps" ${cfg.captions ? "checked" : ""} ${H.settings.whisper_installed ? "" : "disabled"}> 영상 속 말로 자막 자동 생성 ${H.settings.whisper_installed ? `<span class="muted small">(영상 길이에 따라 몇 분)</span>` : `<span class="muted small">(설치 필요: 설정·점검)</span>`}</label>
+      <label class="ck"><input type="checkbox" id="auto" ${cfg.auto_render ? "checked" : ""}> 편집기 없이 바로 완성본까지 만들기</label></div>
+    <div class="foot"><button id="mCancel">취소</button><button class="accent" id="goBtn" disabled>자동 편집 시작</button></div>`;
+  $("#modal").classList.add("on"); drawFiles();
+}
+function readCfg() {
+  const m = document.querySelector("input[name=mode]:checked"); if (m) cfg.mode = m.value;
+  cfg.topic = $("#topic")?.value || ""; cfg.sponsored = !!$("#spon")?.checked; cfg.captions = !!$("#caps")?.checked; cfg.auto_render = !!$("#auto")?.checked;
+  cfg.platforms = $$("[data-plat]").filter(c => c.checked).map(c => c.dataset.plat);
+}
+$("#modal").addEventListener("click", async e => {
+  const t = e.target;
+  if (t.id === "modal" && H.job.state !== "running") return closeModal();
+  if (t.closest("#mClose") || t.id === "mCancel") return closeModal();
+  if (t.id === "addMore") return pickFiles();
+  const rm = t.closest("[data-rm]"); if (rm) { uploads.splice(+rm.dataset.rm, 1); return drawFiles(); }
+  const pr = t.closest("[data-prof]");
+  if (pr) { readCfg(); cfg.profile = pr.dataset.prof; const p = H.profiles.find(x => x.key === cfg.profile); if (p) { cfg.style = p.style || cfg.style; cfg.platforms = (p.platforms || "reels").split(","); } return openNew(); }
+  const st = t.closest("[data-style]"); if (st) { readCfg(); cfg.style = st.dataset.style; return openNew(); }
+  if (t.id === "goBtn") {
+    readCfg();
+    if (!cfg.platforms.length) return toast("올릴 곳을 하나 이상 고르세요");
+    try { H.job = await api("/app/api/create", {...cfg, files: uploads.filter(u => u.done).map(u => u.id)}); showProgress(); }
+    catch (err) { toast(err.message, 6000); }
+  }
+  const op = t.closest("[data-openp]"); if (op) openProject(op.dataset.openp);
+});
+function closeModal() { $("#modal").classList.remove("on"); uploads = []; }
+async function showProgress() {
+  $("#modal").classList.add("on");
+  const j = H.job = await api("/app/api/job");
+  if (j.state === "running") {
+    $("#mbox").innerHTML = `<h3><span>AI가 편집하는 중…</span></h3><div id="prog"><i style="width:${Math.max(3, Math.round(j.progress * 100))}%"></i></div>
+      <div>${esc(j.step || "")}</div><div class="muted small">${Math.round(Date.now() / 1000 - j.started)}초 경과 · 창을 닫지 마세요(브라우저 탭은 닫아도 계속 진행)</div>`;
+    return setTimeout(showProgress, 1000);
+  }
+  if (j.state === "error") {
+    $("#mbox").innerHTML = `<h3><span>자동 편집 실패</span><button class="ghost" id="mClose">✕</button></h3><div class="banner"><b>${esc(j.error)}</b></div>
+      <div class="muted small">설정·점검에서 설치 상태를 확인해 보세요.</div><div class="foot"><button id="mCancel">닫기</button></div>`;
+    return;
+  }
+  if (j.state === "done") {
+    uploads = []; await refresh();
+    if (j.projects.length === 1) return openProject(j.projects[0]);
+    $("#mbox").innerHTML = `<h3><span>편집 완료 · ${j.projects.length}개 프로젝트</span><button class="ghost" id="mClose">✕</button></h3>
+      <div class="muted">${j.elapsed}초 걸렸습니다. 열 프로젝트를 고르세요.</div>
+      <div class="sec">${j.projects.map(id => `<div class="f files" style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><span style="flex:1">${esc(id)}</span><button class="accent" data-openp="${esc(id)}">편집기 열기</button></div>`).join("")}</div>`;
+  }
+}
+async function openProject(id) {
+  busy(true, "편집기를 준비하는 중…<br><span class='muted small'>처음 열 때는 썸네일·미리보기용 영상을 만드느라 조금 걸립니다</span>");
+  try { await api("/app/api/open", {id}); location.href = "/edit"; }
+  catch (e) { busy(false); toast(e.message, 7000); }
+}
+async function refresh() { H = await api("/app/api/home"); if (page === "home") renderHome(); }
+
+$("#main").addEventListener("click", async e => {
+  const t = e.target;
+  if (t.closest("#drop")) return pickFiles();
+  const pg = t.closest("[data-page]"); if (pg) { page = pg.dataset.page; return render(); }
+  const fp = t.closest("[data-fp]"); if (fp) { filter.profile = fp.dataset.fp; return renderHome(); }
+  const fs = t.closest("[data-fs]"); if (fs) { filter.status = fs.dataset.fs; return renderHome(); }
+  const rv = t.closest("[data-reveal]"); if (rv) { e.stopPropagation(); const j = await api("/app/api/reveal", {id: rv.dataset.reveal}); if (!j.ok) toast("폴더 위치: " + j.path, 6000); return; }
+  if (t.closest("[data-status]")) return;
+  const op = t.closest("[data-open]"); if (op) openProject(op.dataset.open);
+});
+$("#main").addEventListener("change", async e => {
+  const s = e.target.closest("[data-status]"); if (!s) return;
+  try { await api("/app/api/status", {id: s.dataset.status, status: s.value}); await refresh(); toast("상태를 바꿨습니다"); } catch (err) { toast(err.message); }
+});
+const drop = () => $("#drop");
+document.addEventListener("dragover", e => { e.preventDefault(); drop()?.classList.add("over"); });
+document.addEventListener("dragleave", e => { if (!e.relatedTarget) drop()?.classList.remove("over"); });
+document.addEventListener("drop", e => { e.preventDefault(); drop()?.classList.remove("over"); if (e.dataTransfer.files.length) { if (page !== "home") { page = "home"; render(); } startNew([...e.dataTransfer.files]); } });
+
+/* ---------------- 설정·점검 ---------------- */
+function renderSettings() {
+  const s = H.settings;
+  $("#main").innerHTML = `<h1>설정·점검</h1><div class="muted" style="margin-bottom:12px">이 PC에만 저장됩니다(사용자 폴더의 .autoedit).</div>
+    <div class="set">
+      <div class="fld"><label>작업자 이름 (검수표에 '제작'으로 표시)</label><input id="sName" value="${esc(s.user_name)}" placeholder="예) 김대리"></div>
+      <div class="fld"><label>작업 폴더 (프로젝트·완성본이 쌓이는 곳)</label><input id="sWs" value="${esc(H.workspace)}"></div>
+      <div class="fld"><label>자동 캡션 정확도</label><select id="sWh" ${s.whisper_installed ? "" : "disabled"}>
+        ${[["tiny", "가장 빠름(정확도 낮음)"], ["base", "빠름"], ["small", "권장(균형)"], ["medium", "정확(느림·고사양)"], ["none", "사용 안 함"]].map(([k, n]) => `<option value="${k}" ${s.whisper_model === k ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+      <div class="fld"><label>AI 음성 키 (ElevenLabs) ${s.elevenlabs ? `<span class="ok">· 설정됨</span>` : ""}</label><input id="sEl" type="password" placeholder="${s.elevenlabs ? "바꿀 때만 입력" : "elevenlabs.io → 프로필 → API Keys"}"></div>
+      <div class="fld"><label>AI 편집 기획 키 (Claude) ${s.anthropic ? `<span class="ok">· 설정됨</span>` : `<span class="muted">· 없으면 규칙 기반 편집</span>`}</label><input id="sAn" type="password" placeholder="${s.anthropic ? "바꿀 때만 입력" : "console.anthropic.com → API Keys"}"></div>
+      <button class="accent" id="sSave">저장</button>
+      <h2>설치 점검 <button id="sCheck">다시 점검</button></h2>
+      ${H.checks.map(c => `<div class="chk"><span class="m ${c.ok ? "ok" : c.required ? "bad" : "opt-miss"}">${c.ok ? "✓" : c.required ? "✕" : "–"}</span>
+        <div><b>${esc(c.name)}</b> ${c.required ? "" : `<span class="muted small">(선택)</span>`}<div class="muted small">${esc(c.detail)}</div>${c.ok ? "" : `<div class="small">→ ${esc(c.fix)}</div>`}</div></div>`).join("")}
+    </div>`;
+}
+$("#main").addEventListener("click", async e => {
+  if (e.target.id === "sSave") {
+    busy(true, "저장 중…");
+    try { H = await api("/app/api/settings", {user_name: $("#sName").value.trim(), workspace: $("#sWs").value.trim(), whisper_model: $("#sWh").value, elevenlabs_key: $("#sEl").value.trim(), anthropic_key: $("#sAn").value.trim()}); renderSettings(); toast("저장했습니다"); }
+    catch (err) { toast(err.message, 6000); } finally { busy(false); }
+  }
+  if (e.target.id === "sCheck") { busy(true, "점검 중…"); try { H = await api("/app/api/checks", {}); renderSettings(); } finally { busy(false); } }
+});
+$("#side").addEventListener("click", async e => {
+  const pg = e.target.closest("[data-page]"); if (pg) { page = pg.dataset.page; return render(); }
+  if (e.target.closest("#openWs")) { const j = await api("/app/api/reveal", {}); if (!j.ok) toast("작업 폴더: " + j.path, 6000); }
+});
+load().catch(e => toast("불러오기 실패: " + e.message, 9000));
+</script>
+</body>
+</html>

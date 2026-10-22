@@ -25,7 +25,11 @@ API
   POST /api/narration/draft {plan, instruction}                     AI 대본 초안
   GET  /api/render/status
   GET  /media/source/<i> · /media/thumbs/<i> · /media/sfx/<종류> · /media/asset/<파일명>
-  GET  /media/output?preview=0|1[&download=1]
+  GET  /media/output?preview=1 | ?v=<버전>[&download=1]
+  GET  /media/review/<검수표_vN.html|업로드문구_vN.txt>
+  GET  /api/history · /api/history/<파일>   자동 백업 목록·내용
+  POST /api/review {status, memo, done}    컨펌 상태·수정 요청 메모
+  POST /api/reveal                         프로젝트 폴더 열기
 """
 
 from __future__ import annotations
@@ -48,12 +52,14 @@ from pydantic import ValidationError
 
 from . import settings, voice
 from .media import ffmpeg, probe
+from .osutil import reveal
 from .narration import create_narration, draft_script
 from .pacing import fill_static_gaps
 from .plan import EditPlan
 from .planner_heuristic import attach_assets, plan_heuristic
-from .project import Project, finalize
+from .project import REVIEW_STATES, Project, finalize
 from .sfx import RECIPES, ensure_sfx
+from .platforms import PLATFORMS
 from .styles import STYLES
 from .transcribe import Sentence, Transcript, Word, transcribe
 
@@ -115,8 +121,9 @@ def _llm_ready() -> bool:
 
 
 class EditorState:
-    def __init__(self, pdir: Path, whisper_model: str | None = None):
+    def __init__(self, pdir: Path, whisper_model: str | None = None, in_app: bool = False):
         self.project = Project.load(pdir)
+        self.in_app = in_app
         self.whisper_model = whisper_model
         self.project.bake()
         self.proxies: list[Path] = []
@@ -166,8 +173,11 @@ class EditorState:
         outputs = {}
         for key, preview in (("final", False), ("preview", True)):
             path = pr.output_path(preview)
-            outputs[key] = {"exists": path.exists(), "mtime": path.stat().st_mtime if path.exists() else 0,
-                            "url": f"/media/output?preview={int(preview)}", "path": str(path)}
+            ok = bool(path and path.exists())
+            ver = pr.versions[-1]["v"] if (not preview and pr.versions) else None
+            outputs[key] = {"exists": ok, "mtime": path.stat().st_mtime if ok else 0, "version": ver,
+                            "url": f"/media/output?preview=1" if preview else f"/media/output?v={ver or 0}",
+                            "path": str(path) if path else ""}
         return {
             "meta": {
                 "name": pr.name, "profile": pr.meta.get("profile"), "planner": pr.meta.get("planner"),
@@ -192,6 +202,12 @@ class EditorState:
             "assets": self.assets(),
             "sfx": [{"kind": k, "label": SFX_LABEL[k], "len": SFX_LEN[k], "url": f"/media/sfx/{k}"} for k in RECIPES],
             "outputs": outputs,
+            "versions": pr.versions,
+            "platform_labels": {k: PLATFORMS[k].label for k in (pr.meta.get("platforms") or [pr.platform.key])},
+            "review": pr.review,
+            "review_states": list(REVIEW_STATES),
+            "history": pr.history()[:15],
+            "app": self.in_app,
             "diagnosis": self.diagnosis(plan),
             "voice": {
                 "ready": voice.engine_ready(),
@@ -307,17 +323,23 @@ class EditorState:
         self._prepare_source(len(self.project.analyses) - 1)
         return name
 
-    def start_render(self, plan: EditPlan, preview: bool) -> dict:
+    def start_render(self, plan: EditPlan, preview: bool, request_review: bool = False) -> dict:
         with self.lock:
             if self.job.get("state") == "running":
                 return self.job
-            self.job = {"state": "running", "preview": preview, "started": time.time()}
+            self.job = {"state": "running", "preview": preview, "started": time.time(), "progress": 0.0}
+
+        def on_progress(frac: float) -> None:
+            self.job["progress"] = round(frac, 3)
 
         def work():
             try:
-                info, card = self.project.render(plan, preview=preview, planner_suffix=" + 수작업 편집")
-                self.job = {"state": "done", "preview": preview, "info": info, "score": card.score,
-                            "elapsed": round(time.time() - self.job["started"], 1)}
+                info, card = self.project.render(plan, preview=preview, planner_suffix=" + 수작업 편집",
+                                                 progress=on_progress, creator=settings.get("user_name", ""))
+                if not preview and request_review:
+                    self.project.set_review(status="컨펌 요청")
+                self.job = {"state": "done", "preview": preview, "info": info, "score": card.score, "progress": 1.0,
+                            "version": info.get("version"), "elapsed": round(time.time() - self.job["started"], 1)}
             except Exception as exc:  # 렌더링 실패는 UI에 그대로 보여준다
                 self.job = {"state": "error", "preview": preview, "error": str(exc)[-1500:],
                             "trace": traceback.format_exc()[-1500:]}
@@ -326,7 +348,10 @@ class EditorState:
         return self.job
 
 
-def make_handler(st: EditorState):
+def make_handler(source):
+    """source: EditorState 또는 현재 편집 중인 EditorState를 돌려주는 함수(시작 화면 앱에서 프로젝트 전환용)."""
+    get_st = source if callable(source) else (lambda: source)
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "autoedit-editor"
 
@@ -401,6 +426,9 @@ def make_handler(st: EditorState):
             url = urlparse(self.path)
             path = unquote(url.path)
             q = parse_qs(url.query)
+            st = get_st()
+            if st is None and (path.startswith("/api/") or path.startswith("/media/")):
+                return self._error("열린 프로젝트가 없습니다. 시작 화면에서 프로젝트를 여세요.", HTTPStatus.CONFLICT)
             try:
                 if path in ("/", "/index.html"):
                     return self._file(STATIC / "index.html")
@@ -420,8 +448,26 @@ def make_handler(st: EditorState):
                 if path.startswith("/media/sfx/"):
                     return self._file(st.sfx_files.get(path.rsplit("/", 1)[1]))
                 if path == "/media/output":
-                    preview = q.get("preview", ["0"])[0] == "1"
-                    return self._file(st.project.output_path(preview), download="download" in q)
+                    if q.get("preview", ["0"])[0] == "1":
+                        return self._file(st.project.output_path(True), download="download" in q)
+                    v = int(q.get("v", ["0"])[0] or 0)
+                    hit = next((x for x in st.project.versions if x["v"] == v), None)
+                    extra = q.get("p", [""])[0]
+                    if hit and extra:
+                        name = (hit.get("extra") or {}).get(extra)
+                        target = st.project.pdir / name if name else None
+                    else:
+                        target = st.project.pdir / hit["file"] if hit else st.project.output_path(False)
+                    return self._file(target, download="download" in q)
+                if path.startswith("/media/review/"):
+                    name = Path(path.rsplit("/", 1)[1]).name
+                    if not re.fullmatch(r"(검수표_v\d+\.html|업로드문구_v\d+\.txt)", name):
+                        return self._error("없는 경로", HTTPStatus.NOT_FOUND)
+                    return self._file(st.project.pdir / name, download="download" in q)
+                if path == "/api/history":
+                    return self._json({"history": st.project.history()})
+                if path.startswith("/api/history/"):
+                    return self._json({"plan": st.project.load_history(path.rsplit("/", 1)[1]).model_dump()})
                 if path == "/api/voices/stock":
                     return self._json({"voices": st.stock_voices()})
                 if path.startswith("/media/narration/"):
@@ -440,6 +486,9 @@ def make_handler(st: EditorState):
         def do_POST(self):
             url = urlparse(self.path)
             path = url.path
+            st = get_st()
+            if st is None:
+                return self._error("열린 프로젝트가 없습니다. 시작 화면에서 프로젝트를 여세요.", HTTPStatus.CONFLICT)
             try:
                 if path == "/api/import":
                     q = parse_qs(url.query)
@@ -468,7 +517,13 @@ def make_handler(st: EditorState):
                     st.save_transcript(int(data["index"]), data["sentences"])
                     return self._json(st.state())
                 if path == "/api/render":
-                    return self._json(st.start_render(self._plan(data), bool(data.get("preview"))))
+                    return self._json(st.start_render(self._plan(data), bool(data.get("preview")),
+                                                      bool(data.get("request_review"))))
+                if path == "/api/review":
+                    return self._json({"review": st.project.set_review(
+                        status=data.get("status"), memo=data.get("memo"), done=data.get("done"))})
+                if path == "/api/reveal":
+                    return self._json({"ok": reveal(st.project.pdir), "path": str(st.project.pdir)})
                 if path == "/api/transcribe":
                     st.auto_captions(int(data["index"]))
                     return self._json(st.state())

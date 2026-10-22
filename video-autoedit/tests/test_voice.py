@@ -219,3 +219,27 @@ def test_editor_voice_api(tmp_path, monkeypatch, capsys):
         assert post("/api/voices/delete", {"id": mine[0]["id"]})["mine"] == []
     finally:
         httpd.shutdown()
+
+
+def test_multi_platform_export_reuses_body(tmp_path, analysis):
+    """Reels+TikTok 한 프로젝트: 컷 인코딩은 한 번, 플랫폼별 파일은 자막 위치만 달리 합성."""
+    import time as _t
+    from autoedit.project import Project
+    brief = Brief()
+    plan = plan_heuristic([analysis], REELS, brief)
+    meta = {"sources": [analysis.path], "analysis_dirs": [str(tmp_path / "work")], "platform": "reels",
+            "platforms": ["reels", "tiktok"], "brief": brief.model_dump(), "render": {}, "versions": []}
+    pdir = tmp_path / "proj"
+    pdir.mkdir()
+    (pdir / "project.json").write_text(json.dumps(meta))
+    proj = Project(pdir, meta, [analysis])
+    seen = []
+    info, _ = proj.render(plan, progress=seen.append)
+    assert info["version"] == 1 and set(info["extra"]) == {"tiktok"}
+    tiktok = pdir / info["extra"]["tiktok"]
+    assert tiktok.exists() and not (pdir / "work_tiktok" / "pieces").exists()  # 본편 재사용
+    assert seen == sorted(seen) and seen[-1] == pytest.approx(1.0)
+    assert (pdir / "검수표_v1.html").exists() and (pdir / "업로드문구_v1.txt").exists()
+    # 같은 편집이라도 두 번째 내보내기는 v2로 새로 남는다
+    info2, _ = proj.render(plan)
+    assert info2["version"] == 2 and (pdir / info["file"].split("/")[-1]).exists()
