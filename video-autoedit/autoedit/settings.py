@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-ENV_KEYS = {"elevenlabs": "ELEVENLABS_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+ENV_KEYS = {"elevenlabs": "ELEVENLABS_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "github": "AUTOEDIT_GITHUB_TOKEN"}
 
 
 def home() -> Path:

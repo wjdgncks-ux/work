@@ -205,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     ap_ = sub.add_parser("app", help="시작 화면(새 프로젝트·최근 프로젝트·설정) — 바탕화면 아이콘이 실행하는 것")
     ap_.add_argument("--port", type=int, default=8765)
     ap_.add_argument("--no-browser", action="store_true")
+    ap_.add_argument("--child", action="store_true", help=argparse.SUPPRESS)  # 실행기(launcher)가 띄운 앱
     ap_.set_defaults(func=cmd_app)
 
     pr = sub.add_parser("profiles", help="채널 프로필 목록")

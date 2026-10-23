@@ -51,7 +51,7 @@ async function layout(page, where, selectors) {
     await page.goto(BASE + "/");
     await page.waitForSelector("#drop");
     results.timings.home_load_ms = Date.now() - s;
-    check("시작 화면: 설치 문제 배너 없음", !(await page.$(".banner")));
+    check("시작 화면: 설치 문제 배너 없음", !(await page.$(".banner:not(.upd)")));
     await layout(page, "시작 화면", ["#drop", "#side"]);
     await shot(page, "01-home");
 
@@ -187,6 +187,24 @@ async function layout(page, where, selectors) {
     await page.waitForSelector(".chk");
     check("설정·점검 화면", (await page.$$(".chk")).length >= 6);
     await shot(page, "07-settings");
+
+    // 13) 업데이트: 새 버전 알림 → 지금 업데이트 → 다시 시작 뒤 화면 자동 새로고침 → 되돌리기 버튼
+    await page.click('#side [data-page="home"]');
+    await page.waitForSelector(".banner.upd", { timeout: 20000 });
+    check("업데이트: 시작 화면에 새 버전 알림과 바뀐 점", (await page.textContent(".banner.upd")).includes("9.9.0") && (await page.textContent(".banner.upd")).includes("새 기능 A"));
+    await layout(page, "업데이트 알림", ["#updGo"]);
+    await shot(page, "08-update-banner");
+    s = t0();
+    await page.click("#updGo");
+    await page.waitForEvent("load", { timeout: 60000 });
+    await page.waitForSelector("#drop");
+    results.timings.update_ms = Date.now() - s;
+    await page.waitForTimeout(800);
+    check("업데이트 뒤 알림이 사라짐(최신 버전)", !(await page.$(".banner.upd")));
+    await page.click('#side [data-page="settings"]');
+    await page.waitForSelector("#updBox #updBack", { timeout: 10000 });
+    check("설정: 지금 버전 9.9.0·이전 버전 되돌리기 버튼", (await page.textContent("#updBox")).includes("지금 버전 9.9.0") && (await page.textContent("#updBack")).includes("되돌리기"));
+    await shot(page, "09-update-settings");
     await layout(page, "설정 화면", ["#sSave"]);
   } catch (e) {
     check("흐름 중단 없이 끝까지 진행", false, e.message.split("\n")[0]);

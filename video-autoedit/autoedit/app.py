@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import threading
 import time
@@ -23,7 +24,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import doctor, settings, voice
+from . import doctor, settings, updater, voice
 from .editor import STATIC, EditorState, _whisper_available, make_handler
 from .media import probe
 from .osutil import reveal
@@ -39,11 +40,23 @@ STYLE_DESC = {"explainer": "정보·노하우. 질문·숫자로 후킹, 짧은 
               "demo": "제품 시연·리뷰. 결과 먼저, 작업 구간 빨리감기"}
 
 
+def supervised() -> bool:
+    """실행기(launcher) 아래에서 돌고 있어 업데이트 뒤 자동으로 다시 시작할 수 있는지."""
+    return os.environ.get("AUTOEDIT_SUPERVISED") == "1"
+
+
+def request_restart() -> None:
+    """업데이트를 마친 뒤 앱을 끝내면 실행기가 새 버전으로 다시 띄운다. 테스트·하네스는 이 함수를 바꿔 끼운다."""
+    if supervised():
+        threading.Timer(1.0, lambda: os._exit(updater.RESTART_CODE)).start()
+
+
 class AppState:
     def __init__(self):
         settings.export_keys_to_env()
         self.editor: EditorState | None = None
         self.job: dict = {"state": "idle"}
+        self.update_job: dict = {"state": "idle"}
         self.lock = threading.Lock()
         self._checks: list[dict] | None = None
 
@@ -128,7 +141,7 @@ class AppState:
                          "voice_models": [{"id": k, **v} for k, v in voice.VS_ENGINES.items()],
                          "anthropic": bool(settings.get_key("anthropic")),
                          "whisper_model": cfg.get("whisper_model", "small"), "whisper_installed": _whisper_available(),
-                         "user_name": cfg.get("user_name", "")},
+                         "user_name": cfg.get("user_name", ""), "version": updater.current()["version"]},
             "job": self.job, "editor_open": self.editor.project.pdir.relative_to(self.workspace).as_posix()
             if self.editor and self.workspace in self.editor.project.pdir.parents else None,
         }
@@ -199,6 +212,8 @@ class AppState:
             raise ValueError("알 수 없는 음성 엔진")
         settings.put(voicestudio_model=model, voicestudio_url=(d.get("voicestudio_url") or "").strip() or None)
         voice._ready = (0.0, False)
+        if d.get("github_key"):
+            settings.set_key("github", d["github_key"])
         if d.get("anthropic_key") is not None and d["anthropic_key"] != "":
             settings.set_key("anthropic", d["anthropic_key"])
             settings.export_keys_to_env()
@@ -207,6 +222,61 @@ class AppState:
             Path(ws).expanduser().mkdir(parents=True, exist_ok=True)
         settings.put(whisper_model=d.get("whisper_model"), user_name=d.get("user_name"), workspace=ws or None)
         self._checks = None
+
+    # ---------- 업데이트 ----------
+    def update_state(self, force: bool = False) -> dict:
+        root = updater.ROOT
+        return {"version": updater.current()["version"], "check": updater.check(force=force),
+                "job": self.update_job, "backup": updater.backup_info(), "result": updater.last_result(),
+                "supervised": supervised(), "dev": updater.dev_checkout(root),
+                "source": updater.source(), "token": bool(settings.get_key("github"))}
+
+    def start_update(self, zip_path: Path | None = None) -> dict:
+        with self.lock:
+            if self.update_job.get("state") in ("running", "restarting"):
+                return self.update_job
+            busy = self.job.get("state") == "running" or (self.editor and self.editor.job.get("state") == "running")
+            if busy:
+                raise ValueError("자동 편집이나 내보내기가 끝난 뒤에 업데이트하세요")
+            if updater.dev_checkout(updater.ROOT):
+                raise ValueError("개발용 폴더(git)에서는 앱 업데이트를 하지 않습니다. git pull을 쓰세요")
+            self.update_job = {"state": "running", "step": "내려받는 중", "progress": 0.0}
+
+        def step(name: str, lo: float, hi: float):
+            self.update_job.update(step=name, progress=round(lo, 3))
+            return lambda f: self.update_job.update(progress=round(lo + (hi - lo) * f, 3))
+
+        def work():
+            try:
+                zp = zip_path or updater.download(updater.source(), progress=step("내려받는 중", 0.0, 0.6))
+                step("파일 확인 중", 0.62, 0.62)
+                pkg = updater.extract(zp, updater.updates_dir() / "staging")
+                info = updater.apply(pkg, progress=step("새 파일로 바꾸는 중", 0.65, 1.0))
+                (updater.updates_dir() / "result.json").unlink(missing_ok=True)
+                self.update_job = {"state": "restarting", "progress": 1.0, **info, "supervised": supervised()}
+                request_restart()
+            except updater.UpdateError as exc:
+                self.update_job = {"state": "error", "error": str(exc)}
+            except Exception as exc:  # noqa: BLE001 — 화면에 원인을 보여 준다
+                self.update_job = {"state": "error", "error": f"업데이트 중 오류: {exc}", "trace": traceback.format_exc()[-1500:]}
+
+        threading.Thread(target=work, daemon=True).start()
+        return self.update_job
+
+    def upload_update(self, body: bytes) -> dict:
+        zp = updater.updates_dir() / "upload.zip"
+        zp.write_bytes(body)
+        return self.start_update(zp)
+
+    def rollback(self) -> dict:
+        with self.lock:
+            if self.update_job.get("state") in ("running", "restarting"):
+                raise ValueError("업데이트가 진행 중입니다")
+            info = updater.rollback()
+            self.update_job = {"state": "restarting", "progress": 1.0, "to": info["version"], "rollback": True,
+                               "supervised": supervised()}
+        request_restart()
+        return self.update_job
 
     def set_status(self, pid: str, status: str) -> None:
         if status not in REVIEW_STATES:
@@ -241,6 +311,8 @@ def make_app_handler(app: AppState):
                     return self._json(app.home())
                 if path == "/app/api/job":
                     return self._json(app.job)
+                if path == "/app/api/update":
+                    return self._json(app.update_state())
                 if path == "/app/media/cover":
                     pdir = app.project_dir(q["id"][0])
                     return self._file(pdir / Path(q["file"][0]).name)
@@ -256,6 +328,9 @@ def make_app_handler(app: AppState):
             try:
                 if path == "/app/api/upload":
                     return self._json(app.upload(q["name"][0], self._raw()))
+                if path == "/app/api/update/file":
+                    app.upload_update(self._raw())
+                    return self._json(app.update_state())
                 data = json.loads(self._raw() or b"{}")
                 if path == "/app/api/create":
                     return self._json(app.create(data))
@@ -271,11 +346,22 @@ def make_app_handler(app: AppState):
                 if path == "/app/api/status":
                     app.set_status(data["id"], data["status"])
                     return self._json({"ok": True})
+                if path == "/app/api/update/check":
+                    return self._json(app.update_state(force=True))
+                if path == "/app/api/update/start":
+                    app.start_update()
+                    return self._json(app.update_state())
+                if path == "/app/api/update/rollback":
+                    app.rollback()
+                    return self._json(app.update_state())
+                if path == "/app/api/update/dismiss":
+                    (updater.updates_dir() / "result.json").unlink(missing_ok=True)
+                    return self._json(app.update_state())
                 if path == "/app/api/reveal":
                     target = app.project_dir(data["id"]) if data.get("id") else app.workspace
                     return self._json({"ok": reveal(target), "path": str(target)})
                 return self._error("없는 경로", HTTPStatus.NOT_FOUND)
-            except (KeyError, ValueError, json.JSONDecodeError) as exc:
+            except (KeyError, ValueError, json.JSONDecodeError, updater.UpdateError) as exc:
                 return self._error(str(exc))
 
     return AppHandler

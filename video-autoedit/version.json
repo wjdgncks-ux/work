@@ -1,0 +1,10 @@
+{
+ "version": "1.1.0",
+ "date": "2026-10-23",
+ "notes": [
+  "프로그램 안에서 새 버전 확인·업데이트(문제가 생기면 이전 버전으로 되돌리기)",
+  "AI 음성 엔진을 VoiceStudio(내 PC 무료 앱, 기본 VoxCPM2)로 변경",
+  "인쇄용 설치 안내문(install-guide.pdf)"
+ ],
+ "update": {"repo": "wjdgncks-ux/work", "branch": "claude/kind-pascal-w0102p", "subdir": "video-autoedit"}
+}
