@@ -39,6 +39,10 @@ SNS 알고리즘(시청 지속·공유·저장)에 맞는 편집 기획서(EditP
    sponsored=true면 sns_caption 첫 줄을 단독 '#유료광고'로 시작한다.
 8. 사실: 대사에 없는 수치·사례를 지어내지 않는다. 검증 안 된 수치는 risk_notes에 [사실 검증 필요]로 남긴다.
 
+9. 레퍼런스 스타일(편집 조건의 reference_style)이 있으면 형식을 따른다: 후킹은 hook_templates 형식에 이 영상 내용을 채워 쓰고,
+   tone·sentence_style·cta_style·title_style을 hook_text·카드·CTA·제목·캡션에 맞춘다. rhythm(평균 컷 길이·쉼)에 맞춰 클립을 나눈다.
+   레퍼런스의 문장을 그대로 옮기지 않는다(형식만). avoid 항목은 하지 않는다. 장르(style.guide)·규정(7)·사실(8)이 우선한다.
+
 시각 표기: 모든 t/start/end는 해당 원본(source)의 원본 기준 초. 출력 타임라인은 시스템이 계산한다.
 clips는 출력 순서대로 나열하고 총 길이는 target_seconds 범위(무음 컷으로 10~20% 줄어드는 것 감안)."""
 
@@ -57,11 +61,13 @@ def build_request(analyses: list[Analysis], platform: Platform, brief: Brief, as
             "max_seconds": platform.max_seconds, "max_shot_seconds": platform.max_shot_seconds,
             "notes": platform.notes,
         },
-        "brief": brief.model_dump(),
+        "brief": brief.model_dump(exclude={"reference"}),
         "style": {"key": style.key, "label": style.label, "guide": style.llm_guide, "sfx": style.sfx,
                   "target_seconds": [round(x * style.length_mult) for x in platform.target_seconds]},
         "asset_files": assets,
     }
+    if brief.reference:
+        ctx["reference_style"] = brief.reference.for_prompt()
     content.append({"type": "text", "text": "## 편집 조건\n" + json.dumps(ctx, ensure_ascii=False, indent=1)})
     for a in analyses:
         lines = [f"## 원본 {a.index}: {Path(a.path).name}",
@@ -82,37 +88,44 @@ def build_request(analyses: list[Analysis], platform: Platform, brief: Brief, as
     return [{"role": "user", "content": content}]
 
 
-def _call(client, messages: list[dict], effort: str) -> EditPlan | None:
+def structured_call(client, *, system: str, messages: list[dict], output, effort: str, fallback: str,
+                    max_tokens: int = 16000):
+    """구조화 출력(Pydantic 모델) 호출. 오류·거절·잘림이면 None을 돌려주고 이유를 알린다(fallback: 대신 할 일)."""
     import anthropic
 
     try:
         resp = client.beta.messages.parse(
             model=MODEL,
-            max_tokens=16000,
-            system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
+            max_tokens=max_tokens,
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=messages,
-            output_format=EditPlan,
+            output_format=output,
             thinking={"type": "adaptive"},
             output_config={"effort": effort},
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
         )
     except anthropic.RateLimitError as exc:
-        print(f"  · Claude 요청 한도 초과({exc.status_code}) → 규칙 기반 기획으로 대체", file=sys.stderr)
+        print(f"  · Claude 요청 한도 초과({exc.status_code}) → {fallback}", file=sys.stderr)
         return None
     except anthropic.APIStatusError as exc:
-        print(f"  · Claude API 오류 {exc.status_code}: {exc.message} → 규칙 기반 기획으로 대체", file=sys.stderr)
+        print(f"  · Claude API 오류 {exc.status_code}: {exc.message} → {fallback}", file=sys.stderr)
         return None
     except anthropic.APIConnectionError as exc:
-        print(f"  · Claude 연결 실패({exc}) → 규칙 기반 기획으로 대체", file=sys.stderr)
+        print(f"  · Claude 연결 실패({exc}) → {fallback}", file=sys.stderr)
         return None
     if resp.stop_reason == "refusal":
-        print("  · Claude가 요청을 거절 → 규칙 기반 기획으로 대체", file=sys.stderr)
+        print(f"  · Claude가 요청을 거절 → {fallback}", file=sys.stderr)
         return None
     if resp.stop_reason == "max_tokens" or resp.parsed_output is None:
-        print("  · 기획서가 잘렸거나 파싱 실패 → 규칙 기반 기획으로 대체", file=sys.stderr)
+        print(f"  · 결과가 잘렸거나 파싱 실패 → {fallback}", file=sys.stderr)
         return None
     return resp.parsed_output
+
+
+def _call(client, messages: list[dict], effort: str) -> EditPlan | None:
+    return structured_call(client, system=SYSTEM, messages=messages, output=EditPlan, effort=effort,
+                           fallback="규칙 기반 기획으로 대체")
 
 
 def plan_llm(analyses: list[Analysis], platform: Platform, brief: Brief, assets: list[str],

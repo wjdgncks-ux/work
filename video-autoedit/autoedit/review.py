@@ -43,7 +43,7 @@ def _engine(e: dict | None) -> str:
 
 
 def review_html(*, name: str, version: int, platform: Platform, plan: EditPlan, card: Scorecard, info: dict,
-                creator: str, voices_used: list[dict]) -> str:
+                creator: str, voices_used: list[dict], reference: str = "") -> str:
     cover = ""
     cp = Path(info.get("cover") or "")
     if cp.is_file():
@@ -78,6 +78,7 @@ li{{margin:4px 0}} label{{display:flex;gap:8px;align-items:flex-start;margin:6px
       <span class="chip {'warn' if plan.sponsored else ''}">유료광고 표시 {'있음' if plan.sponsored else '없음'}</span>
       <span class="chip {'warn' if ai_voice else ''}">AI 음성 {'사용' if ai_voice else '없음'}{' · 화면 표시 ' + ('켬' if plan.ai_voice_label else '<b>꺼짐</b>') if ai_voice else ''}</span>
       <span class="chip {'ok' if card.score >= 85 else 'warn'}">AI 진단 {card.score}/100</span>
+      {f'<span class="chip">레퍼런스 스타일: {_esc(reference)}</span>' if reference else ''}
     </div>
   </div>
 </div>

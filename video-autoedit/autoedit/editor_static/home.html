@@ -67,6 +67,9 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:26px 0 12px;display:fl
 .opt:hover{border-color:#55555d}.opt.on{border-color:var(--accent);background:#14393b66}
 .opt b{display:block}.opt small{color:var(--muted)}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.refbox{border:1px solid var(--line2);border-radius:10px;padding:10px 12px;margin-top:8px;display:flex;flex-direction:column;gap:8px}
+.refbox textarea{width:100%;min-height:54px;resize:vertical;background:#121214;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;color:var(--text);font:inherit}
+.warnline{color:#f0b84a;font-size:12px}
 label.ck{display:flex;gap:8px;align-items:center;cursor:pointer;padding:4px 0}
 .foot{display:flex;gap:10px;justify-content:flex-end;position:sticky;bottom:-20px;margin:20px -22px -20px;padding:14px 22px;background:var(--panel);border-top:1px solid var(--line)}
 #prog{height:8px;background:var(--panel2);border-radius:4px;overflow:hidden;margin:14px 0 8px}#prog i{display:block;height:100%;background:var(--accent);transition:width .4s}
@@ -92,6 +95,7 @@ label.ck{display:flex;gap:8px;align-items:center;cursor:pointer;padding:4px 0}
 <div id="busy"><div id="busyMsg"></div></div>
 <div id="toast"></div>
 <input type="file" id="filePick" accept="video/*" multiple hidden>
+<input type="file" id="refPick" accept="video/*" multiple hidden>
 
 <script>
 "use strict";
@@ -207,19 +211,56 @@ function renderHome() {
 }
 
 /* 업로드 → 새 프로젝트 설정 */
-let uploads = [], cfg = null;
+let uploads = [], refUploads = [], cfg = null;
+const chDefault = () => { const id = (H.channel_styles || {})[cfg.profile || ""]; return (H.style_cards || []).find(c => c.id === id) || null; };
+function refDefaults() { cfg.ref = {mode: chDefault() ? "default" : "none", card_id: (H.style_cards || [])[0]?.id || "", links: "", consent: false, name: "", save_default: false}; }
+function refSection() {
+  const r = cfg.ref, cards = H.style_cards || [], def = chDefault();
+  const o = (mode, title, sub) => `<div class="opt ${r.mode === mode ? "on" : ""}" data-refmode="${mode}"><b>${title}</b><small>${sub}</small></div>`;
+  return `<div class="sec"><div class="t">레퍼런스 스타일 <span class="muted small">(선택 · 따라 하고 싶은 영상의 컷·문구·자막 형식)</span></div><div class="opts">
+      ${def ? o("default", "채널 기본 스타일", esc(def.name)) : ""}
+      ${o("none", "사용 안 함", "장르 기본 편집")}
+      ${cards.length ? o("card", "저장된 스타일", `${cards.length}개 중 고르기`) : ""}
+      ${o("new", "새 레퍼런스 영상", "영상을 넣어 분석")}</div>
+    ${r.mode === "card" ? `<div class="refbox"><select id="refCard">${cards.map(c => `<option value="${esc(c.id)}" ${c.id === r.card_id ? "selected" : ""}>${esc(c.name)} · 영상 ${c.samples}개${c.analyzed ? "" : " · 리듬만"}</option>`).join("")}</select>
+      <label class="ck"><input type="checkbox" id="refSave" ${r.save_default ? "checked" : ""} ${cfg.profile ? "" : "disabled"}> 이 채널의 기본 스타일로 저장</label></div>` : ""}
+    ${r.mode === "new" ? `<div class="refbox">
+      <div class="files" id="refFiles"></div>
+      <div class="row"><button id="refAdd">+ 레퍼런스 영상 넣기</button><span class="muted small">같은 크리에이터 영상 3~5개를 권장합니다</span></div>
+      <div><div class="muted small" style="margin-bottom:4px">또는 링크(한 줄에 하나)</div>
+        <textarea id="refLinks" placeholder="https://www.youtube.com/shorts/…">${esc(r.links)}</textarea>
+        <label class="ck"><input type="checkbox" id="refConsent" ${r.consent ? "checked" : ""}> 링크 영상은 <b>내 채널 영상</b>이거나 <b>사용 허락을 받은 영상</b>입니다</label>
+        <div class="muted small">플랫폼 약관상 남의 영상을 허락 없이 내려받을 수 없습니다. 인스타그램 링크는 로그인 문제로 실패할 수 있으니 파일로 올려 주세요.</div></div>
+      <input id="refName" placeholder="스타일 이름 — 예) 와이프 채널 · 일상 브이로그 톤" value="${esc(r.name)}">
+      <label class="ck"><input type="checkbox" id="refSave" ${r.save_default ? "checked" : ""} ${cfg.profile ? "" : "disabled"}> 이 채널의 기본 스타일로 저장</label>
+      ${H.settings.anthropic ? "" : `<div class="warnline">Claude 키가 없어 컷 리듬만 분석됩니다(문구·톤·자막 모양은 설정에서 키를 넣으면 분석)</div>`}
+      <div class="muted small">레퍼런스의 문장·음악은 가져오지 않고 형식만 따릅니다.</div></div>` : ""}</div>`;
+}
+function readRef() {
+  const r = cfg.ref; if (!r) return;
+  if ($("#refCard")) r.card_id = $("#refCard").value;
+  if ($("#refLinks")) r.links = $("#refLinks").value;
+  if ($("#refConsent")) r.consent = $("#refConsent").checked;
+  if ($("#refName")) r.name = $("#refName").value;
+  if ($("#refSave")) r.save_default = $("#refSave").checked;
+}
+$("#refPick").onchange = e => {
+  const files = [...e.target.files].filter(f => /^video\//.test(f.type) || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(f.name));
+  files.forEach(f => { const u = {file: f, name: f.name, progress: 0, done: false, error: ""}; refUploads.push(u); upload(u, "ref"); });
+  drawFiles();
+};
 function pickFiles() { $("#filePick").value = ""; $("#filePick").click(); }
 $("#filePick").onchange = e => startNew([...e.target.files]);
 function startNew(files) {
   files = files.filter(f => /^video\//.test(f.type) || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(f.name));
   if (!files.length) return toast("영상 파일을 골라 주세요");
-  if (!cfg) { const p = H.profiles[0]; cfg = {profile: p?.key || "", style: p?.style || "explainer", platforms: (p?.platforms || "reels").split(","), mode: "each", topic: "", sponsored: false, captions: H.settings.whisper_installed, auto_render: false}; }
+  if (!cfg) { const p = H.profiles[0]; cfg = {profile: p?.key || "", style: p?.style || "explainer", platforms: (p?.platforms || "reels").split(","), mode: "each", topic: "", sponsored: false, captions: H.settings.whisper_installed, auto_render: false}; refDefaults(); }
   files.forEach(f => uploads.push({file: f, name: f.name, progress: 0, done: false, error: ""}));
   openNew(); files.forEach(f => upload(uploads.find(u => u.file === f)));
 }
-function upload(u) {
+function upload(u, kind = "video") {
   const x = new XMLHttpRequest();
-  x.open("POST", `/app/api/upload?name=${encodeURIComponent(u.name)}`);
+  x.open("POST", `/app/api/upload?name=${encodeURIComponent(u.name)}&kind=${kind}`);
   x.upload.onprogress = e => { if (e.lengthComputable) { u.progress = e.loaded / e.total; drawFiles(); } };
   x.onload = () => { try { const j = JSON.parse(x.responseText); if (x.status !== 200) throw new Error(j.error); Object.assign(u, {done: true, progress: 1, id: j.id, info: `${j.duration}초 · ${j.size}`}); } catch (err) { u.error = err.message; } drawFiles(); };
   x.onerror = () => { u.error = "업로드 실패"; drawFiles(); };
@@ -230,7 +271,10 @@ function drawFiles() {
   el.innerHTML = uploads.map((u, k) => `<div class="f"><span style="min-width:0;flex:2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u.name)}</span>
     ${u.error ? `<span class="bad">${esc(u.error)}</span>` : u.done ? `<span class="muted">${esc(u.info)}</span>` : `<div class="bar"><i style="width:${Math.round(u.progress * 100)}%"></i></div>`}
     <button class="ghost" data-rm="${k}" title="빼기">✕</button></div>`).join("");
-  const go = $("#goBtn"); if (go) go.disabled = !uploads.some(u => u.done) || uploads.some(u => !u.done && !u.error);
+  const rf = $("#refFiles"); if (rf) rf.innerHTML = refUploads.map((u, k) => `<div class="f"><span style="min-width:0;flex:2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u.name)}</span>
+    ${u.error ? `<span class="bad">${esc(u.error)}</span>` : u.done ? `<span class="muted">${esc(u.info)}</span>` : `<div class="bar"><i style="width:${Math.round(u.progress * 100)}%"></i></div>`}
+    <button class="ghost" data-rrm="${k}" title="빼기">✕</button></div>`).join("");
+  const go = $("#goBtn"); if (go) go.disabled = !uploads.some(u => u.done) || [...uploads, ...refUploads].some(u => !u.done && !u.error);
   const mode = $("#modeRow"); if (mode) mode.style.display = uploads.filter(u => u.done).length > 1 ? "" : "none";
 }
 function openNew() {
@@ -245,6 +289,7 @@ function openNew() {
       ${prof?.notes ? `<div class="muted small" style="margin-top:6px">${esc(prof.notes)}</div>` : ""}</div>
     <div class="sec"><div class="t">어떤 영상인가요?</div><div class="opts">
       ${H.styles.map(s => `<div class="opt ${cfg.style === s.key ? "on" : ""}" data-style="${s.key}"><b>${esc(s.label)}</b><small>${esc(s.desc)}</small></div>`).join("")}</div></div>
+    ${refSection()}
     <div class="sec"><div class="t">어디에 올리나요?</div><div class="row">
       ${H.platforms.map(p => `<label class="ck"><input type="checkbox" data-plat="${p.key}" ${cfg.platforms.includes(p.key) ? "checked" : ""}> ${esc(p.label)}</label>`).join("")}</div></div>
     <div class="sec"><div class="t">추가 설정 <span class="muted small">(비워도 됩니다)</span></div>
@@ -259,6 +304,7 @@ function readCfg() {
   const m = document.querySelector("input[name=mode]:checked"); if (m) cfg.mode = m.value;
   cfg.topic = $("#topic")?.value || ""; cfg.sponsored = !!$("#spon")?.checked; cfg.captions = !!$("#caps")?.checked; cfg.auto_render = !!$("#auto")?.checked;
   cfg.platforms = $$("[data-plat]").filter(c => c.checked).map(c => c.dataset.plat);
+  readRef();
 }
 $("#modal").addEventListener("click", async e => {
   const t = e.target;
@@ -267,17 +313,25 @@ $("#modal").addEventListener("click", async e => {
   if (t.id === "addMore") return pickFiles();
   const rm = t.closest("[data-rm]"); if (rm) { uploads.splice(+rm.dataset.rm, 1); return drawFiles(); }
   const pr = t.closest("[data-prof]");
-  if (pr) { readCfg(); cfg.profile = pr.dataset.prof; const p = H.profiles.find(x => x.key === cfg.profile); if (p) { cfg.style = p.style || cfg.style; cfg.platforms = (p.platforms || "reels").split(","); } return openNew(); }
+  if (pr) { readCfg(); cfg.profile = pr.dataset.prof; const p = H.profiles.find(x => x.key === cfg.profile); if (p) { cfg.style = p.style || cfg.style; cfg.platforms = (p.platforms || "reels").split(","); }
+    if (cfg.ref.mode === "default" || cfg.ref.mode === "none") cfg.ref.mode = chDefault() ? "default" : "none"; return openNew(); }
+  const rmode = t.closest("[data-refmode]"); if (rmode) { readCfg(); cfg.ref.mode = rmode.dataset.refmode; return openNew(); }
+  if (t.id === "refAdd") { $("#refPick").value = ""; return $("#refPick").click(); }
+  const rrm = t.closest("[data-rrm]"); if (rrm) { refUploads.splice(+rrm.dataset.rrm, 1); return drawFiles(); }
   const st = t.closest("[data-style]"); if (st) { readCfg(); cfg.style = st.dataset.style; return openNew(); }
   if (t.id === "goBtn") {
     readCfg();
     if (!cfg.platforms.length) return toast("올릴 곳을 하나 이상 고르세요");
-    try { H.job = await api("/app/api/create", {...cfg, files: uploads.filter(u => u.done).map(u => u.id)}); showProgress(); }
+    const r = cfg.ref, links = r.links.split("\n").map(x => x.trim()).filter(Boolean);
+    if (r.mode === "new" && !refUploads.some(u => u.done) && !links.length) return toast("레퍼런스 영상을 넣거나 링크를 적어 주세요");
+    if (links.length && !r.consent) return toast("링크 영상이 내 영상이거나 허락받은 영상인지 확인 체크가 필요합니다", 6000);
+    const reference = {...r, links, files: refUploads.filter(u => u.done).map(u => u.id)};
+    try { H.job = await api("/app/api/create", {...cfg, reference, files: uploads.filter(u => u.done).map(u => u.id)}); showProgress(); }
     catch (err) { toast(err.message, 6000); }
   }
   const op = t.closest("[data-openp]"); if (op) openProject(op.dataset.openp);
 });
-function closeModal() { $("#modal").classList.remove("on"); uploads = []; }
+function closeModal() { $("#modal").classList.remove("on"); uploads = []; refUploads = []; }
 async function showProgress() {
   $("#modal").classList.add("on");
   const j = H.job = await api("/app/api/job");

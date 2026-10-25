@@ -64,6 +64,18 @@ async function layout(page, where, selectors) {
     await layout(page, "새 프로젝트 창", ["#goBtn", "#mCancel"]);
     await page.click('[data-prof="wife"]');
     check("새 프로젝트: 채널 고르면 스타일 자동 선택(유머)", await page.$('[data-style="funny"].on'));
+    // 레퍼런스 영상 넣기
+    await page.click('[data-refmode="new"]');
+    await page.setInputFiles("#refPick", { name: "레퍼런스 샘플.webm", mimeType: "video/webm", buffer: fs.readFileSync(harness.webm) });
+    await page.waitForFunction(() => refUploads.length > 0 && refUploads.every(u => u.done || u.error), null, { timeout: 60000 });
+    check("레퍼런스 영상 올라감", await page.evaluate(() => refUploads[0].done), await page.evaluate(() => refUploads[0].error));
+    await page.fill("#refName", "와이프 레퍼런스");
+    await page.check("#refSave");
+    await page.fill("#refLinks", "https://www.instagram.com/reel/abc/");
+    await page.click("#goBtn");
+    check("링크는 허락 확인 체크 없이는 시작 안 됨", (await page.textContent("#toast")).includes("확인 체크"));
+    await page.fill("#refLinks", "");
+    await layout(page, "새 프로젝트 창(레퍼런스)", ["#goBtn", "#refAdd"]);
     await shot(page, "02-new-project");
     s = t0();
     await page.click("#goBtn");
@@ -79,6 +91,29 @@ async function layout(page, where, selectors) {
     const tlH = await page.evaluate(() => document.querySelector("#tscroll").getBoundingClientRect().height);
     check("편집기: 타임라인 보이는 높이 150px 이상", tlH >= 150, `${Math.round(tlH)}px`);
     check("편집기: 자동 캡션이 들어감", await page.evaluate(() => (diag.captions || []).length > 3));
+    const capWords = await page.evaluate(() => diag.captions.flatMap(c => c.text.split(" ")));
+    check("군말(음·어)이 자막에 없음", !capWords.includes("음") && !capWords.includes("어"), capWords.slice(0, 12).join(" "));
+    // 레퍼런스 스타일 탭: 카드 확인 → 자막 위치 바꾸기 → 미리보기 반영 → 저장
+    await page.click('#rtabs [data-rt="style"]');
+    await page.waitForSelector('[data-scc="position"]');
+    const styleText = await page.textContent("#rbody");
+    const hookVal = await page.inputValue('[data-sca="hook_pattern"]');
+    check("스타일 탭: 레퍼런스 이름·분석 결과·표본 1개 경고", styleText.includes("와이프 레퍼런스") && hookVal === "결과 먼저" && styleText.includes("1개"), hookVal);
+    const rClip = await page.evaluate(() => { const P = document.querySelector("#rbody").getBoundingClientRect(), T = document.querySelector("#rtabs").getBoundingClientRect();
+      const bad = [...document.querySelectorAll("#rbody button, #rbody select, #rbody input, #rbody textarea")].filter(el => { const b = el.getBoundingClientRect(); return b.width && b.right > P.right + 1; }).map(el => el.id || el.dataset.scc || el.dataset.sca || el.tagName);
+      const tabs = [...document.querySelectorAll("#rtabs button")].filter(b => b.getBoundingClientRect().right > T.right + 1).map(b => b.textContent);
+      return bad.concat(tabs); });
+    check("오른쪽 패널: 입력칸·버튼·탭이 잘리지 않음", rClip.length === 0, rClip.join(", "));
+    await page.evaluate(() => { seek(diag.captions[1].start + 0.05); renderOverlay(true); });
+    check("미리보기 자막에 카드 모양(박스) 반영", await page.$(".ov-cap.box"));
+    await page.selectOption('[data-scc="position"]', "middle");
+    check("자막 위치를 바꾸면 미리보기가 바로 바뀜", (await page.evaluate(() => document.querySelector(".ov-cap")?.getAttribute("style") || "")).includes("bottom:40%"));
+    await layout(page, "스타일 탭", ["#scSave", "#scReplan"]);
+    await page.click("#scSave");
+    await page.waitForFunction(() => S.meta.brief.reference.analysis.caption.position === "middle", null, { timeout: 10000 });
+    check("스타일 카드 저장(프로젝트·보관함)", true);
+    await shot(page, "03d-style");
+    await page.click('#rtabs [data-rt="proj"]');
     await shot(page, "03-editor");
 
     // 4) CapCut 조작: 분할·왼쪽 삭제·되돌리기

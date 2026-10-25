@@ -2,6 +2,7 @@
 
 - 음성 엔진(VoiceStudio) → 같은 API로 응답하는 가짜 VoiceStudio 서버(tests/fake_voicestudio.py)
 - 음성 인식(Whisper)   → 영상 길이에 맞춘 가짜 대본
+- Claude              → 레퍼런스 스타일 분석만 고정 결과로 응답(기획은 규칙 기반으로 대체됨, 실제 API 호출 없음)
 - 설정·작업 폴더       → 임시 폴더(AUTOEDIT_HOME)
 - 업데이트             → 임시 설치 폴더 + 가짜 GitHub(새 버전 9.9.0 게시), 다시 시작은 상태만 바꿔 흉내
 - 샘플 영상            → 까다로운 파일 이름(한글·공백·작은따옴표)의 VP9 영상(헤드리스 브라우저 재생용)
@@ -102,6 +103,20 @@ def main() -> None:
                  voicestudio_url=vs_url, update_source={"repo": "acme/work", "branch": "main", "subdir": "video-autoedit"})
     state.__init__()
     analyze.transcribe = fake_transcriber()
+    from autoedit import planner_llm
+    from autoedit.stylecard import CaptionLook, StyleAnalysis
+
+    def fake_structured(client, *, output, **kw):
+        if output is StyleAnalysis:
+            return StyleAnalysis(summary="친근한 반말, 결과를 먼저 보여 주는 생활 팁", hook_pattern="결과 먼저",
+                                 hook_templates=["○○ 하나로 ○○ 바뀜", "○○ 아직도 이렇게 해?"], tone="반말, 친한 언니",
+                                 sentence_style="짧고 끊어 말함", cta_style="저장 유도", title_style="숫자 + 결과",
+                                 caption=CaptionLook(position="bottom", size="large", background="box",
+                                                     highlight_color="#00E5FF", max_chars=10),
+                                 do=["말 끝나자마자 컷"], avoid=["원문 문장 그대로 쓰기"])
+        return None  # 기획서는 규칙 기반으로
+    planner_llm.structured_call = fake_structured
+    os.environ["ANTHROPIC_API_KEY"] = "fake-e2e-key"
     editor._whisper_available = lambda: True
     app._whisper_available = lambda: True
     editor.transcribe = analyze.transcribe

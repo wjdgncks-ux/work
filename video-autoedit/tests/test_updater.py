@@ -20,8 +20,10 @@ SRC = {"repo": "acme/work", "branch": "release/main", "subdir": "video-autoedit"
 
 def make_install(dest: Path, version: str = "1.1.0") -> Path:
     """배포 ZIP과 같은 모양의 설치 폴더 + 사용자 자료·.venv."""
-    files = subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True).stdout.split()
-    for rel in files + ["version.json", "autoedit/updater.py", "autoedit/launcher.py"]:
+    # 추적 중인 파일 + 아직 커밋하지 않은 새 파일(.gitignore 제외) = 배포 ZIP에 들어갈 파일
+    files = subprocess.run(["git", "ls-files", "-co", "--exclude-standard"], cwd=REPO, capture_output=True, text=True,
+                           check=True).stdout.splitlines()
+    for rel in files:
         src = REPO / rel
         if src.is_file():
             (dest / rel).parent.mkdir(parents=True, exist_ok=True)

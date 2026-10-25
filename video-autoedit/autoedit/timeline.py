@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from .analyze import Analysis
+from .fillers import filler_spans, filler_words
 from .plan import EditPlan
 
 PAD = 0.08        # 무음 컷 앞뒤 여유
@@ -59,7 +60,7 @@ def _subtract_silences(start: float, end: float, silences: list[tuple[float, flo
 
 
 def build_timeline(plan: EditPlan, analyses: list[Analysis], *, cut_silence: float = 0.35) -> list[Piece]:
-    """cut_silence 이상 지속된 무음만 잘라낸다(0이면 무음 컷 끔). 빨리감기 클립은 자르지 않는다."""
+    """cut_silence 이상 지속된 무음과 군말(음·어 등, fillers.py)을 잘라낸다(0이면 둘 다 끔). 빨리감기 클립은 자르지 않는다."""
     out: list[Piece] = []
     cursor = 0.0
     for clip in plan.clips:
@@ -71,7 +72,8 @@ def build_timeline(plan: EditPlan, analyses: list[Analysis], *, cut_silence: flo
         ranges = [(start, end)]
         if cut_silence > 0 and speed == 1.0 and a.info.has_audio:
             long_silences = [(s, e) for s, e in a.silences if e - s >= cut_silence]
-            ranges = _subtract_silences(start, end, long_silences) or [(start, end)]  # 전부 무음이면 원본 유지
+            cuts = sorted(long_silences + filler_spans(a.transcript))
+            ranges = _subtract_silences(start, end, cuts) or [(start, end)]  # 전부 무음이면 원본 유지
         for s, e in ranges:
             piece = Piece(clip.source, round(s, 3), round(e, 3), round(cursor, 3), clip.role, speed)
             out.append(piece)
@@ -157,8 +159,10 @@ def build_captions(timeline: list[Piece], analyses: list[Analysis], max_chars: i
         tr = analyses[p.source].transcript
         if not tr or p.speed != 1.0:  # 빨리감기 구간은 원음이 없으므로 자막도 없음
             continue
+        fill = filler_words(tr)
         words = [(p.out_start + max(w.start - p.start, 0), min(p.out_start + (w.end - p.start), p.out_end), w.text)
-                 for w in tr.words() if w.start >= p.start - 0.05 and w.end <= p.end + 0.15]
+                 for w in tr.words() if w.start >= p.start - 0.05 and w.end <= p.end + 0.15
+                 and (w.start, w.end, w.text) not in fill]
         caps += _chunk(words, max_chars, max_dur)
     spans = [(a, b, n) for a, b, n in narration_spans(timeline, narrations) if n.captions]
     if spans:

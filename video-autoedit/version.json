@@ -1,10 +1,15 @@
 {
- "version": "1.1.0",
- "date": "2026-10-23",
+ "version": "1.2.0",
+ "date": "2026-10-25",
  "notes": [
-  "프로그램 안에서 새 버전 확인·업데이트(문제가 생기면 이전 버전으로 되돌리기)",
-  "AI 음성 엔진을 VoiceStudio(내 PC 무료 앱, 기본 VoxCPM2)로 변경",
-  "인쇄용 설치 안내문(install-guide.pdf)"
+  "레퍼런스 스타일: 따라 하고 싶은 영상을 넣으면 컷 리듬·후킹 형식·말투·자막 모양을 분석해 그대로 편집에 반영",
+  "편집기 '스타일' 탭에서 스타일 카드 확인·수정, 채널 기본 스타일로 저장",
+  "자막과 컷에서 군말(음·어 등) 자동 제거",
+  "편집기 오른쪽 패널이 노트북 화면에서 잘리던 문제 수정"
  ],
- "update": {"repo": "wjdgncks-ux/work", "branch": "claude/kind-pascal-w0102p", "subdir": "video-autoedit"}
+ "update": {
+  "repo": "wjdgncks-ux/work",
+  "branch": "claude/kind-pascal-w0102p",
+  "subdir": "video-autoedit"
+ }
 }

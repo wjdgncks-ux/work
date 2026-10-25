@@ -89,6 +89,11 @@ def draft_script(plan: EditPlan, timeline: list[Piece], analyses: list[Analysis]
         ],
         "user_request": instruction,
     }
+    if brief.reference and brief.reference.analysis:
+        a = brief.reference.analysis
+        prompt["reference_style"] = {"tone": a.tone, "sentence_style": a.sentence_style, "hook_templates": a.hook_templates,
+                                     "cta_style": a.cta_style, "avoid": a.avoid}
+        prompt["rules"].append("reference_style의 말투·문장 형식을 따르되 레퍼런스 문장을 그대로 쓰지 않는다(형식만)")
     try:
         resp = anthropic.Anthropic().beta.messages.parse(
             model=MODEL, max_tokens=8000, output_format=Script,

@@ -23,6 +23,7 @@ from .render import RenderOptions, render
 from .report import build_report
 from .scorecard import Scorecard, autofix, evaluate
 from .styles import STYLES, Style
+from .stylecard import StyleCard, effective_platform, effective_style
 from .timeline import Caption, Piece, build_captions, build_timeline
 from .transcribe import Transcript
 
@@ -53,7 +54,8 @@ def finalize(plan: EditPlan, analyses: list[Analysis], platform: Platform, brief
              *, auto_pace: bool = True, manual: bool = False) -> tuple[Scorecard, list[Piece], list[Caption]]:
     """검증·보정 → 타임라인·자막 → 진단. auto_pace=False면 사람이 넣은 강조를 건드리지 않는다.
     manual=True(편집기에서 컷을 클립으로 확정한 프로젝트)면 무음 컷·후킹 재정렬 없이 클립을 보이는 그대로 쓴다."""
-    style = STYLES[brief.style]
+    style = effective_style(STYLES[brief.style], brief.reference, platform)
+    platform = effective_platform(platform, brief.reference)
     sanitize(plan, analyses, keep_order=manual)
     if auto_pace:
         fill_static_gaps(plan, analyses, platform, style)
@@ -65,7 +67,7 @@ def finalize(plan: EditPlan, analyses: list[Analysis], platform: Platform, brief
     return card, timeline, captions
 
 
-def render_options(render_cfg: dict, style: Style, *, preview: bool = False) -> RenderOptions:
+def render_options(render_cfg: dict, style: Style, *, preview: bool = False, reference: StyleCard | None = None) -> RenderOptions:
     from .doctor import resolve_font
     p = lambda k: Path(render_cfg[k]) if render_cfg.get(k) else None  # noqa: E731
     return RenderOptions(
@@ -74,6 +76,7 @@ def render_options(render_cfg: dict, style: Style, *, preview: bool = False) -> 
         bgm=p("bgm"), bgm_db=float(render_cfg.get("bgm_db") or -20.0),
         highlight=render_cfg.get("highlight") or "#FFE500", handle=render_cfg.get("handle") or "",
         zoom=style.zoom, preview=preview,
+        caption_look=reference.caption.model_dump() if reference and reference.analysis else None,
     )
 
 
@@ -101,7 +104,7 @@ class Project:
 
     @property
     def style(self) -> Style:
-        return STYLES[self.brief.style]
+        return effective_style(STYLES[self.brief.style], self.brief.reference, self.platform)
 
     @property
     def name(self) -> str:
@@ -179,6 +182,10 @@ class Project:
     def save_meta(self) -> None:
         (self.pdir / "project.json").write_text(json.dumps(self.meta, ensure_ascii=False, indent=1), encoding="utf-8")
 
+    def set_reference(self, card: StyleCard | None) -> None:
+        self.meta["brief"]["reference"] = card.model_dump() if card else None
+        self.save_meta()
+
     def set_style(self, key: str) -> None:
         self.meta["brief"]["style"] = STYLES[key].key
         self.save_meta()
@@ -240,7 +247,7 @@ class Project:
         다른 세로 플랫폼도 지정돼 있으면 자막·문구 위치만 그 플랫폼 안전영역에 맞춰 파일을 하나씩 더 만든다."""
         card, timeline, captions = self.finalize(plan)
         self.save_plan(plan)  # 실제 렌더링한 보정본으로 갱신
-        opts = render_options(self.meta.get("render", {}), self.style, preview=preview)
+        opts = render_options(self.meta.get("render", {}), self.style, preview=preview, reference=self.brief.reference)
         extras = [] if preview else self.extra_platforms
         parts = 1 + 0.3 * len(extras)  # 추가 플랫폼은 본편을 재사용해 자막 합성만 → 약 30% 시간
         report = progress or (lambda f: None)
@@ -250,7 +257,8 @@ class Project:
         extra_files = {}
         body = self.pdir / "work" / "pieces" / "body.mkv"
         for k, pf in enumerate(extras, 1):
-            caps = build_captions(timeline, self.analyses, pf.caption_chars, narrations=plan.narrations)
+            caps = build_captions(timeline, self.analyses, effective_platform(pf, self.brief.reference).caption_chars,
+                                  narrations=plan.narrations)
             path = out.with_name(out.name.replace(f"_{self.platform.key}_v", f"_{pf.key}_v"))
             same = (pf.width, pf.height, pf.fps) == (self.platform.width, self.platform.height, self.platform.fps)
             render(plan, timeline, caps, self.analyses, pf, opts, path, self.pdir / f"work_{pf.key}",
@@ -267,6 +275,10 @@ class Project:
             info["version"] = entry["v"]
         return info, card
 
+    def _reference_label(self) -> str:
+        ref = self.brief.reference
+        return f"{ref.name} (영상 {ref.samples}개 분석)" if ref else ""
+
     def write_review_package(self, plan: EditPlan, card: Scorecard, info: dict, version: int, creator: str) -> dict:
         from .review import review_html, upload_text
         from .voice import VoiceStore, engine_info
@@ -280,7 +292,8 @@ class Project:
                                                **({"engine": engine_info(n.engine)} if n.engine else {})}
         sheet = self.pdir / f"검수표_v{version}.html"
         sheet.write_text(review_html(name=self.name, version=version, platform=self.platform, plan=plan, card=card,
-                                     info=info, creator=creator, voices_used=list(voices.values())), encoding="utf-8")
+                                     info=info, creator=creator, voices_used=list(voices.values()),
+                                     reference=self._reference_label()), encoding="utf-8")
         text = self.pdir / f"업로드문구_v{version}.txt"
         text.write_text(upload_text(plan), encoding="utf-8")
         return {"sheet": str(sheet), "text": str(text)}

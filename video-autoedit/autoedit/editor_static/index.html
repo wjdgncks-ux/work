@@ -76,6 +76,18 @@ aside,#player{min-height:0;border-right:1px solid var(--line);background:var(--p
 #ov{position:absolute;inset:0;pointer-events:none;font-weight:800;text-align:center}
 #ov .o{position:absolute;left:7%;right:7%;display:flex;justify-content:center}
 #ov span{display:inline-block;line-height:1.25;padding:.15em .4em;border-radius:.25em;white-space:pre-wrap}
+.note.warn{color:#f0b84a}
+.sc-r{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;background:var(--panel2);border-radius:8px;padding:8px 10px;margin:6px 0 10px;font-size:12px;color:var(--muted)}
+.sc-r b{color:var(--text);font-variant-numeric:tabular-nums}
+.sc-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.sc-row>*{flex:1;min-width:0}
+.sc-row select,.sc-row input:not([type=color]):not([type=number]){width:100%;min-width:0;box-sizing:border-box}
+.sc-row label{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.sc-row input[type=color]{width:34px;height:26px;padding:0;border:1px solid var(--line2);border-radius:6px;background:none;flex:none}
+.sc-act{position:sticky;top:-1px;z-index:2;background:var(--panel);padding:6px 0 8px;margin-bottom:4px;border-bottom:1px solid var(--line)}
+.sc-act button{white-space:nowrap}
+.ov-cap.box span{background:rgba(0,0,0,.72);-webkit-text-stroke:0;text-shadow:none;padding:.1em .35em;border-radius:.2em}
+.ov-cap.none span{-webkit-text-stroke:0}
 .ov-cap span{color:#fff;-webkit-text-stroke:calc(var(--u)*0.35) #000;paint-order:stroke fill;text-shadow:0 calc(var(--u)*.3) calc(var(--u)*.6) #000a}
 .ov-hook span{background:#111;color:#fff}
 .ov-card span{color:#111}
@@ -96,9 +108,11 @@ aside,#player{min-height:0;border-right:1px solid var(--line);background:var(--p
 /* 속성 패널 */
 #right{display:grid;grid-template-rows:auto 1fr;overflow:hidden}
 #rtabs{display:flex;gap:2px;padding:6px 8px 0;border-bottom:1px solid var(--line);min-height:36px}
-#rtabs button{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--muted);padding:6px 10px}
+#rtabs button{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--muted);padding:6px 7px;white-space:nowrap;flex:none}
+#rtabs{overflow-x:auto;scrollbar-width:none}
 #rtabs button.on{color:var(--text);border-bottom-color:var(--accent)}
-#rbody{overflow:auto;padding:12px}
+#rbody{overflow:auto;padding:12px;min-width:0}
+#right>*{min-width:0}  /* 그리드 칸이 내용 폭만큼 늘어나 패널 밖으로 넘치지 않게 */
 .fld{margin-bottom:12px}.fld>label{display:block;color:var(--muted);margin-bottom:5px}
 .fld input:not([type=checkbox]):not([type=range]),.fld select{width:100%}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -769,14 +783,18 @@ function renderOverlay(force) {
   vid.style.transform = `scale(${z.toFixed(4)})`; $("#flash").style.opacity = fl;
   const key = JSON.stringify(items);
   if (!force && key === ovKey) return; ovKey = key;
-  const base = "calc(var(--u)*4.2)", hl = m.highlight;
+  const look = m.brief.reference?.analysis?.caption || null;
+  const base = "calc(var(--u)*4.2)", hl = look?.highlight_color || m.highlight;
+  const capSize = {small: .85, large: 1.2}[look?.size] || 1;
+  const capPos = !look || look.position === "bottom" ? `bottom:${(P.safe_bottom + .10) * 100}%`
+    : look.position === "middle" ? "bottom:40%" : `top:${(P.safe_top + .04) * 100 + 9}%`;
   const hlText = (t, kws) => { let h = esc(t); [...new Set(kws)].sort((a, b) => b.length - a.length).forEach(k => { const ek = esc(k); h = h.replace(ek, `<em style="color:${hl};font-style:normal">${ek}</em>`); }); return h; };
   $("#ov").innerHTML = items.map(it => {
     if (it.k === "hook") return `<div class="o ov-hook" style="top:${(P.safe_top + .04) * 100}%;font-size:calc(${base}*1.35)"><span>${esc(it.text)}</span></div>`;
     if (it.k === "cta") return `<div class="o ov-cta" style="bottom:${(P.safe_bottom + .22) * 100}%;font-size:calc(${base}*1.1)"><span>${esc(it.text)}</span></div>`;
     if (it.k === "card") return `<div class="ov-band"></div><div class="o ov-card" style="top:38%;transform:translateY(-50%);font-size:calc(${base}*1.2)"><span style="background:${hl}">${esc(it.text)}</span></div>`;
     if (it.k === "asset") return `<div class="ov-asset" style="top:${(P.safe_top + .06) * 100}%;height:40%">${/\.(mp4|mov)$/i.test(it.asset) ? `<video src="/media/asset/${encodeURIComponent(it.asset)}" muted autoplay loop></video>` : `<img src="/media/asset/${encodeURIComponent(it.asset)}">`}</div>`;
-    if (it.k === "cap") return `<div class="o ov-cap" style="bottom:${(P.safe_bottom + .10) * 100}%;font-size:${base}"><span>${hlText(it.text, it.kws)}</span></div>`;
+    if (it.k === "cap") return `<div class="o ov-cap ${look ? esc(look.background) : ""}" style="${capPos};font-size:calc(${base}*${capSize})"><span${look ? ` style="color:${esc(look.text_color)}"` : ""}>${hlText(it.text, it.kws)}</span></div>`;
     if (it.k === "badge") return `<div class="ov-badge" style="left:7%;top:${P.safe_top * 100}%;font-size:calc(${base}*.55)">${esc(it.text)}</div>`;
     if (it.k === "handle") return `<div class="ov-handle" style="right:7%;top:${P.safe_top * 100}%;font-size:calc(${base}*.5)">${esc(m.handle)}</div>`;
     return "";
@@ -808,11 +826,68 @@ function tabs(list) {
   $("#rtabs").innerHTML = list.map(([k, n]) => `<button data-rt="${k}" class="${k === rightTab ? "on" : ""}">${n}</button>`).join("");
 }
 $("#rtabs").addEventListener("click", e => { const b = e.target.closest("[data-rt]"); if (b) { rightTab = b.dataset.rt; renderProps(); } });
+/* ---------- 레퍼런스 스타일 카드 ---------- */
+let scDraft = null;
+const SC_TEXT = [["hook_pattern", "후킹 방식"], ["tone", "말투"], ["sentence_style", "문장 스타일"], ["cta_style", "마지막 행동 유도(CTA)"], ["title_style", "제목·캡션 형식"]];
+const SC_LIST = [["hook_templates", "후킹 문구 형식(한 줄에 하나, ○○ = 내용 자리)"], ["do", "따라 할 편집 습관"], ["avoid", "따라 하면 안 되는 것"]];
+function renderStyleTab(B) {
+  const ref = S.meta.brief.reference, cards = S.meta.style_cards || [];
+  const pick = `<div class="fld" style="margin-top:12px"><label>스타일 카드 바꾸기</label><div class="sc-row"><select id="scPick">
+      <option value="">레퍼런스 없음(장르 기본 편집)</option>${cards.map(c => `<option value="${esc(c.id)}" ${ref && ref.id === c.id ? "selected" : ""}>${esc(c.name)} · 영상 ${c.samples}개</option>`).join("")}</select>
+      <button id="scUse" style="flex:none;white-space:nowrap">적용</button></div>
+    <div class="note">새 레퍼런스 분석은 시작 화면 → 새 프로젝트에서 레퍼런스 영상을 넣으면 만들어집니다.</div></div>`;
+  if (!ref) { scDraft = null; B.innerHTML = `<div class="ph">레퍼런스 스타일</div><div class="note">이 프로젝트는 레퍼런스 없이 장르 기본값으로 편집됐습니다.</div>${pick}`; return; }
+  if (!scDraft || scDraft.id !== ref.id) scDraft = JSON.parse(JSON.stringify(ref));
+  const r = scDraft.rhythm, a = scDraft.analysis, c = a?.caption;
+  const opt = (k, list, cur) => `<select data-scc="${k}">${list.map(([v, n]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${n}</option>`).join("")}</select>`;
+  B.innerHTML = `<div class="sc-row sc-act"><button class="accent" id="scSave">저장</button><button id="scReplan">이 스타일로 다시 편집</button></div>
+    <div class="ph">${esc(scDraft.name)}</div>
+    <div class="note">레퍼런스 영상 ${scDraft.samples}개 · ${esc(scDraft.analyzed_by)} · ${esc(scDraft.created)}</div>
+    ${(S.meta.reference_warnings || []).map(w => `<div class="note warn">${esc(w)}</div>`).join("")}
+    <div class="sc-r"><span>평균 컷 <b>${r.avg_shot ? r.avg_shot + "초" : "감지 안 됨"}</b></span><span>10초당 컷 <b>${r.cuts_per_10s}</b></span>
+      <span>첫 화면 전환 <b>${r.first_cut ? r.first_cut + "초" : "-"}</b></span><span>말 속도 <b>${r.speech_cps}자/초</b></span>
+      <span>남겨 둔 쉼 <b>${r.median_pause}초</b></span><span>소리 강조 <b>${r.peaks_per_10s}/10초</b></span></div>
+    ${a ? `<div class="fld"><label>요약</label><textarea data-sca="summary" rows="2">${esc(a.summary)}</textarea></div>
+      ${SC_TEXT.map(([k, n]) => `<div class="fld"><label>${n}</label><input data-sca="${k}" value="${esc(a[k])}"></div>`).join("")}
+      ${SC_LIST.map(([k, n]) => `<div class="fld"><label>${n}</label><textarea data-scl="${k}" rows="3">${esc(a[k].join("\n"))}</textarea></div>`).join("")}
+      <div class="fld"><label>자막 모양</label>
+        <div class="sc-row">${opt("position", [["bottom", "아래"], ["middle", "가운데"], ["top", "위"]], c.position)}${opt("size", [["small", "작게"], ["medium", "보통"], ["large", "크게"]], c.size)}${opt("background", [["outline", "외곽선"], ["box", "박스"], ["none", "없음"]], c.background)}</div>
+        <div class="sc-row" style="margin-top:6px;flex-wrap:wrap"><label class="note" style="margin:0;flex:none">글자 <input type="color" data-scc="text_color" value="${esc(c.text_color)}"></label>
+          <label class="note" style="margin:0;flex:none">강조 <input type="color" data-scc="highlight_color" value="${esc(c.highlight_color)}"></label>
+          <label class="note" style="margin:0;flex:none">한 줄 <input type="number" min="6" max="24" data-scc="max_chars" value="${c.max_chars}" style="width:52px">자</label></div></div>`
+      : `<div class="note">문구·톤·자막 모양은 분석되지 않았습니다(Claude 키가 있어야 합니다). 컷 리듬만 반영됩니다.</div>`}
+    ${pick}`;
+}
+function scCollect() {
+  const a = scDraft?.analysis; if (!a) return;
+  $$("#rbody [data-sca]").forEach(el => a[el.dataset.sca] = el.value.trim());
+  $$("#rbody [data-scl]").forEach(el => a[el.dataset.scl] = el.value.split("\n").map(x => x.trim()).filter(Boolean));
+  $$("#rbody [data-scc]").forEach(el => a.caption[el.dataset.scc] = el.type === "number" ? +el.value : el.value);
+}
+async function scPost(body, msg) {
+  busy(true, "저장 중…");
+  try { S = await api("/api/reference", body); scDraft = null; await runDiag(); renderOverlay(true); renderProps(); toast(msg); }
+  catch (e) { toast(e.message, 7000); } finally { busy(false); }
+}
+$("#rbody").addEventListener("change", e => { if (e.target.closest("[data-scc]") && scDraft) { scCollect(); S.meta.brief.reference = JSON.parse(JSON.stringify(scDraft)); renderOverlay(true); } });
+$("#rbody").addEventListener("click", async e => {
+  const id = e.target.id;
+  if (id === "scSave") { scCollect(); await scPost({card: scDraft}, "스타일 카드를 저장했습니다. 내보낼 때 반영됩니다"); }
+  else if (id === "scUse") await scPost({card_id: $("#scPick").value}, $("#scPick").value ? "스타일 카드를 적용했습니다. '이 스타일로 다시 편집'을 누르면 컷·문구까지 바뀝니다" : "레퍼런스 스타일을 뺐습니다");
+  else if (id === "scReplan") {
+    if (!confirm("지금 편집을 이 스타일 기준의 새 자동 편집으로 바꿉니다(되돌리기 가능). 진행할까요?")) return;
+    if (scDraft) { scCollect(); S = await api("/api/reference", {card: scDraft}); }
+    busy(true, "이 스타일로 다시 편집하는 중…");
+    try { const b = snapshot(); await api("/api/replan", {style: S.meta.style}); await load(0); undo.push(b); redo = []; updateTools(); scDraft = null; toast("이 스타일로 다시 편집했습니다(되돌리기 가능)"); }
+    catch (err) { toast("다시 편집 실패: " + err.message, 7000); } finally { busy(false); }
+  }
+});
 function renderProps() {
   const B = $("#rbody");
   if (!sel) {
-    tabs([["proj", "프로젝트"], ["review", "수정 요청"], ["ver", "버전"], ["ai", "AI 진단"]]);
+    tabs([["proj", "프로젝트"], ["review", "수정 요청"], ["style", "스타일"], ["ver", "버전"], ["ai", "AI 진단"]]);
     if (rightTab === "review") return renderReview(B);
+    if (rightTab === "style") return renderStyleTab(B);
     if (rightTab === "ver") return renderVersions(B);
     if (rightTab === "ai") { B.innerHTML = `<div class="ph">AI 진단 ${diag ? diag.score : "-"}/100</div><div class="note">${esc(diag?.headline || "")}</div>${diagList()}`; return; }
     B.innerHTML = `

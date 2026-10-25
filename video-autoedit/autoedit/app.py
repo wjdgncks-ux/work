@@ -24,7 +24,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import doctor, settings, updater, voice
+from . import doctor, reference, settings, updater, voice
 from .editor import STATIC, EditorState, _whisper_available, make_handler
 from .media import probe
 from .osutil import reveal
@@ -142,20 +142,30 @@ class AppState:
                          "anthropic": bool(settings.get_key("anthropic")),
                          "whisper_model": cfg.get("whisper_model", "small"), "whisper_installed": _whisper_available(),
                          "user_name": cfg.get("user_name", ""), "version": updater.current()["version"]},
+            "style_cards": [{"id": c.id, "name": c.name, "samples": c.samples, "analyzed": bool(c.analysis)}
+                            for c in reference.list_cards()],
+            "channel_styles": cfg.get("channel_styles") or {},
             "job": self.job, "editor_open": self.editor.project.pdir.relative_to(self.workspace).as_posix()
             if self.editor and self.workspace in self.editor.project.pdir.parents else None,
         }
 
     # ---------- 동작 ----------
-    def upload(self, name: str, body: bytes) -> dict:
+    def ref_uploads(self) -> Path:
+        d = reference.refs_dir() / "_uploads"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def upload(self, name: str, body: bytes, kind: str = "video") -> dict:
+        """kind=video: 편집할 원본(작업 폴더/원본영상), kind=ref: 레퍼런스 영상(작업 폴더/레퍼런스)."""
         name = Path(name).name
         ext = Path(name).suffix.lower()
         if ext not in VIDEO_EXT:
             raise ValueError(f"영상 파일만 올릴 수 있습니다({', '.join(sorted(VIDEO_EXT))})")
-        dest = self.originals / name
+        folder = self.ref_uploads() if kind == "ref" else self.originals
+        dest = folder / name
         k = 2
         while dest.exists():  # 같은 이름이면 (2), (3)… — 프로젝트 이름도 같이 갈라진다
-            dest = self.originals / f"{Path(name).stem} ({k}){ext}"
+            dest = folder / f"{Path(name).stem} ({k}){ext}"
             k += 1
         dest.write_bytes(body)
         try:
@@ -173,6 +183,18 @@ class AppState:
             files = [self.originals / Path(f).name for f in d.get("files", [])]
             if not files or not all(f.exists() for f in files):
                 raise ValueError("올린 영상이 없습니다")
+            ref = d.get("reference") or {"mode": "default"}
+            ref_files = [self.ref_uploads() / Path(f).name for f in ref.get("files", [])]
+            links = [u.strip() for u in ref.get("links", []) if u.strip()]
+            if ref.get("mode") == "new":
+                if not ref_files and not links:
+                    raise ValueError("레퍼런스 영상을 올리거나 링크를 넣어 주세요")
+                if not all(f.exists() for f in ref_files):
+                    raise ValueError("올린 레퍼런스 영상을 찾지 못했습니다")
+                if links and not ref.get("consent"):
+                    raise ValueError("링크 영상은 내 채널 영상이거나 사용 허락을 받은 영상만 받을 수 있습니다(확인 체크 필요)")
+            if ref.get("mode") == "card" and not reference.load_card(ref.get("card_id") or ""):
+                raise ValueError("선택한 스타일 카드를 찾지 못했습니다")
             platforms = [p for p in d.get("platforms", []) if p in PLATFORMS] or None
             opts = RunOptions(
                 profile=d.get("profile") or None, style=d.get("style") or None,
@@ -188,7 +210,20 @@ class AppState:
 
         def work():
             try:
-                results = run_pipeline(files, opts, on_progress)
+                mode, report = ref.get("mode"), on_progress
+                if mode == "none":
+                    opts.reference = ""
+                elif mode == "card":
+                    opts.reference = ref["card_id"]
+                elif mode == "new":
+                    card = reference.build_card(ref_files, name=ref.get("name", ""), links=links,
+                                                whisper_model=self.whisper_model(),
+                                                progress=lambda m, f: on_progress(m, 0.35 * f))
+                    opts.reference = card.id
+                    report = lambda m, f: on_progress(m, 0.35 + 0.65 * f)  # noqa: E731
+                if ref.get("save_default") and opts.reference and opts.profile:
+                    reference.set_channel_default(opts.profile, opts.reference)
+                results = run_pipeline(files, opts, report)
                 ids = [Path(r["project"]).resolve().relative_to(self.workspace.resolve()).as_posix() for r in results]
                 self.job = {"state": "done", "projects": ids, "progress": 1.0,
                             "elapsed": round(time.time() - self.job["started"], 1)}
@@ -327,7 +362,7 @@ def make_app_handler(app: AppState):
             q = parse_qs(urlparse(self.path).query)
             try:
                 if path == "/app/api/upload":
-                    return self._json(app.upload(q["name"][0], self._raw()))
+                    return self._json(app.upload(q["name"][0], self._raw(), kind=q.get("kind", ["video"])[0]))
                 if path == "/app/api/update/file":
                     app.upload_update(self._raw())
                     return self._json(app.update_state())
@@ -361,7 +396,7 @@ def make_app_handler(app: AppState):
                     target = app.project_dir(data["id"]) if data.get("id") else app.workspace
                     return self._json({"ok": reveal(target), "path": str(target)})
                 return self._error("없는 경로", HTTPStatus.NOT_FOUND)
-            except (KeyError, ValueError, json.JSONDecodeError, updater.UpdateError) as exc:
+            except (KeyError, ValueError, json.JSONDecodeError, updater.UpdateError, reference.RefError) as exc:
                 return self._error(str(exc))
 
     return AppHandler

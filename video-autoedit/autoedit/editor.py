@@ -10,6 +10,7 @@ API
   POST /api/save {plan}                   plan.json 저장(자동 저장)
   POST /api/style {style}                 스타일 변경
   POST /api/replan {style}                AI 재편집(현재 편집을 새 기획으로 교체)
+  POST /api/reference {card_id} | {card}  레퍼런스 스타일 카드 바꾸기("" = 빼기) / 고친 카드 저장
   POST /api/autofill {plan}               정지 구간에 줌 강조 자동 채우기
   POST /api/transcript {index, sentences} 캡션(대사) 수정
   POST /api/import?kind=media|asset&name= 파일 가져오기(본문=파일)
@@ -50,7 +51,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from pydantic import ValidationError
 
-from . import settings, voice
+from . import reference, settings, voice
 from .media import ffmpeg, probe
 from .osutil import reveal
 from .narration import create_narration, draft_script
@@ -61,6 +62,7 @@ from .project import REVIEW_STATES, Project, finalize
 from .sfx import RECIPES, ensure_sfx
 from .platforms import PLATFORMS
 from .styles import STYLES
+from .stylecard import StyleCard
 from .transcribe import Sentence, Transcript, Word, transcribe
 
 STATIC = Path(__file__).parent / "editor_static"
@@ -190,6 +192,8 @@ class EditorState:
                 "brief": pr.meta["brief"], "reframe": rc.get("reframe") or "auto",
                 "highlight": rc.get("highlight") or "#FFE500", "handle": rc.get("handle") or "",
                 "bgm": Path(rc["bgm"]).name if rc.get("bgm") else "", "llm": _llm_ready(),
+                "style_cards": [{"id": c.id, "name": c.name, "samples": c.samples} for c in reference.list_cards()],
+                "reference_warnings": pr.brief.reference.warnings() if pr.brief.reference else [],
             },
             "plan": plan.model_dump(),
             "sources": [{
@@ -321,6 +325,16 @@ class EditorState:
         pr.meta["baked"] = False
         pr.meta["planner"] = ("Claude" if _llm_ready() else "규칙 기반") + f" 재편집({STYLES[style].label})"
         pr.bake()
+
+    def set_reference(self, d: dict) -> None:
+        if "card_id" in d:
+            cid = d["card_id"] or ""
+            card = reference.load_card(cid) if cid else None
+            if cid and card is None:
+                raise ValueError("스타일 카드를 찾지 못했습니다")
+        else:
+            card = reference.save_card(StyleCard(**d["card"])) if d.get("card") else None  # 고친 카드는 보관함에도 반영
+        self.project.set_reference(card)
 
     def autofill(self, plan: EditPlan) -> EditPlan:
         pr = self.project
@@ -533,6 +547,9 @@ def make_handler(source):
                     return self._json({"ok": True, "diagnosis": st.diagnosis(plan)})
                 if path == "/api/style":
                     st.project.set_style(data["style"])
+                    return self._json(st.state())
+                if path == "/api/reference":
+                    st.set_reference(data)
                     return self._json(st.state())
                 if path == "/api/replan":
                     st.replan(data["style"])

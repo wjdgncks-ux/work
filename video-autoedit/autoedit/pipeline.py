@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from . import reference
 from .analyze import Analysis, analyze
 from .plan import Brief, EditPlan
 from .planner_heuristic import attach_assets, plan_heuristic
@@ -46,6 +47,7 @@ class RunOptions:
     reanalyze: bool = False
     plan_only: bool = False
     render: dict = field(default_factory=dict)     # font/reframe/assets/bgm… 덮어쓰기
+    reference: str | None = None                    # 스타일 카드 id. None=채널 기본 카드, ""=쓰지 않음
 
 
 def llm_available(mode: str) -> bool:
@@ -115,6 +117,11 @@ def resolve(opts: RunOptions) -> tuple[Profile | None, Brief, dict, list[Platfor
     if opts.style:
         brief_data["style"] = opts.style
     brief = Brief(**brief_data)
+    ref_id = opts.reference if opts.reference is not None else reference.channel_default(profile.key if profile else None)
+    if ref_id:
+        brief.reference = reference.load_card(ref_id)
+        if brief.reference is None:
+            raise ValueError(f"스타일 카드를 찾지 못했습니다: {ref_id}")
     brief.sponsored = brief.sponsored or opts.sponsored or bool(profile and profile.sponsored)
 
     render_cfg = dict(DEFAULT_RENDER)
@@ -139,7 +146,8 @@ def run_pipeline(videos: list[Path], opts: RunOptions, progress: Progress | None
         raise FileNotFoundError(f"파일 없음: {missing}")
     groups = [[Path(v)] for v in videos] if opts.mode == "each" else [[Path(v) for v in videos]]
     out_root = Path(opts.out) / (profile.key if profile else "")
-    log(f"채널: {profile.name if profile else '(프로필 없음)'} · 스타일: {STYLES[brief.style].label}")
+    log(f"채널: {profile.name if profile else '(프로필 없음)'} · 스타일: {STYLES[brief.style].label}"
+        + (f" · 레퍼런스: {brief.reference.name}" if brief.reference else ""))
     # 세로 플랫폼(Reels·Shorts·TikTok)은 한 번 편집하고 내보낼 때 플랫폼별 파일을 만든다(같은 편집 두 번 하지 않게).
     vertical = [p for p in platforms if p.vertical]
     heads = ([(vertical[0], vertical[1:])] if vertical else []) + [(p, []) for p in platforms if not p.vertical]

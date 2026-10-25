@@ -11,6 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .stylecard import StyleCard
+
 SfxKind = Literal["whoosh", "pop", "ding", "boom", "boing", "riser"]
 EmphasisKind = Literal["zoom_punch", "flash"]
 InsertKind = Literal["text_card", "asset"]
@@ -102,3 +104,4 @@ class Brief(BaseModel):
     cta: str = ""
     hook: str = ""
     notes: str = ""
+    reference: StyleCard | None = Field(default=None, description="레퍼런스 영상에서 뽑은 스타일 카드(없으면 장르 기본값)")

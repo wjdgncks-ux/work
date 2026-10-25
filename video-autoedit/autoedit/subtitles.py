@@ -42,14 +42,36 @@ def _highlight(text: str, keywords: list[str], color: str) -> str:
     return out
 
 
+def _caption_style(look: dict | None, base: int, cap_margin: int, hook_margin: int, H: int, side: int) -> str:
+    """대사 자막 스타일 줄(크기·색·배경·위치). look은 스타일 카드의 CaptionLook(없으면 기본: 하단·흰 글자·외곽선)."""
+    look = look or {}
+    size = round(base * {"small": 0.85, "large": 1.2}.get(look.get("size"), 1.0))
+    text = ass_color(look.get("text_color") or "#FFFFFF").rstrip("&")
+    bg = look.get("background", "outline")
+    if bg == "box":  # 반투명 검정 박스(BorderStyle 3은 외곽선 색으로 박스를 칠한다)
+        border, outline, shadow, oc = 3, round(size * 0.22), 0, "&H50000000"
+    elif bg == "none":
+        border, outline, shadow, oc = 1, 0, 3, "&H00000000"
+    else:
+        border, outline, shadow, oc = 1, max(4, size // 12), 2, "&H00000000"
+    pos = look.get("position", "bottom")
+    align, margin = {"middle": (2, round(H * 0.40)), "top": (8, hook_margin + round(base * 2.2))}.get(pos, (2, cap_margin))
+    return (f"{size},{text},{text},{oc},&H64000000,1,0,0,0,100,100,0,0,{border},{outline},{shadow},"
+            f"{align},{side},{side},{margin},1")
+
+
 def build_ass(platform: Platform, captions: list[Caption], overlays: list[Overlay],
-              emphasis_marks: list[tuple[float, str]], font: str, highlight: str = "#FFE500") -> str:
+              emphasis_marks: list[tuple[float, str]], font: str, highlight: str = "#FFE500",
+              look: dict | None = None) -> str:
+    if look and look.get("highlight_color"):
+        highlight = look["highlight_color"]  # 레퍼런스 스타일이 채널 기본 강조색보다 우선
     color = ass_color(highlight)
     W, H = platform.width, platform.height
     base = round(H * (0.042 if platform.vertical else 0.055))
     cap_margin = round(H * (platform.safe_bottom + 0.10))
     hook_margin = round(H * (platform.safe_top + 0.04))
     side = round(W * 0.07)
+    caption_style = _caption_style(look, base, cap_margin, hook_margin, H, side)
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {W}
@@ -59,7 +81,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,{font},{base},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,{max(4, base // 12)},2,2,{side},{side},{cap_margin},1
+Style: Caption,{font},{caption_style}
 Style: Hook,{font},{round(base * 1.35)},&H00FFFFFF,&H00FFFFFF,&H00111111,&H00111111,1,0,0,0,100,100,0,0,3,{round(base * 0.35)},0,8,{side},{side},{hook_margin},1
 Style: Card,{font},{round(base * 1.2)},&H00111111,&H00111111,{color.rstrip("&")},{color.rstrip("&")},1,0,0,0,100,100,0,0,3,{round(base * 0.45)},0,5,{side},{side},0,1
 Style: CTA,{font},{round(base * 1.1)},&H00FFFFFF,&H00FFFFFF,&H00E06A2A,&H00E06A2A,1,0,0,0,100,100,0,0,3,{round(base * 0.4)},0,2,{side},{side},{round(H * (platform.safe_bottom + 0.22))},1

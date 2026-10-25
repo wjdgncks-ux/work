@@ -9,6 +9,8 @@
   python -m autoedit render out/원본/reels/plan.json             # 수정한 기획서로 렌더링
   python -m autoedit profiles                                    # 프로필 목록
   python -m autoedit voices clone "와이프 목소리" a.m4a b.m4a --consent "동의: 본인"
+  python -m autoedit reference add r1.mp4 r2.mp4 --name "와이프 톤" --channel wife   # 레퍼런스 → 스타일 카드
+  python -m autoedit run 원본.mp4 --profile wife --reference <카드 id|none>
   python -m autoedit settings --voicestudio-model voxcpm2          # 음성 엔진(VoiceStudio) 모델
 """
 
@@ -37,6 +39,7 @@ def cmd_run(args) -> int:
         brief_path=args.brief, sponsored=args.sponsored, llm=args.llm, effort=args.effort, revise=args.revise,
         whisper=None if args.whisper == "none" else args.whisper, language=args.language,
         reanalyze=args.reanalyze, plan_only=args.plan_only,
+        reference=None if args.reference is None else ("" if args.reference == "none" else args.reference),
         brief={k: getattr(args, k) for k in ("topic", "audience", "goal", "industry", "cta", "hook")},
         render={k: getattr(args, k, None) for k in RENDER_KEYS},
     )
@@ -122,6 +125,33 @@ def cmd_settings(args) -> int:
     return 0
 
 
+def cmd_reference(args) -> int:
+    """레퍼런스 영상 → 스타일 카드 만들기·목록·삭제·채널 기본 지정."""
+    from . import reference
+    try:
+        if args.action == "list":
+            defaults = {v: k for k, v in (reference.settings.get("channel_styles") or {}).items()}
+            for c in reference.list_cards():
+                print(f"{c.id}  {c.name:<20} 영상 {c.samples}개  {c.analyzed_by}"
+                      + (f"  [채널 기본: {defaults[c.id]}]" if c.id in defaults else ""))
+        elif args.action == "add":
+            card = reference.build_card([Path(f) for f in args.files], name=args.name or "", links=args.link or [],
+                                        whisper_model=None if args.whisper == "none" else args.whisper,
+                                        progress=lambda m, f: log(f"  {m}"))
+            if args.channel:
+                reference.set_channel_default(args.channel, card.id)
+            print(card.model_dump_json(indent=1))
+            for w in card.warnings():
+                log(f"  · {w}")
+        elif args.action == "delete":
+            reference.delete_card(args.id)
+            print("삭제했습니다")
+    except reference.RefError as exc:
+        log(str(exc))
+        return 1
+    return 0
+
+
 def cmd_profiles(_args) -> int:
     for p in list_profiles():
         prof = load_profile(str(p))
@@ -152,6 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--language", default="ko")
     r.add_argument("--reanalyze", action="store_true")
     r.add_argument("--plan-only", action="store_true")
+    r.add_argument("--reference", help="스타일 카드 id(autoedit reference list) 또는 none. 생략하면 채널 기본 카드")
     r.add_argument("--assets", type=Path, help="자료화면 폴더(파일명을 대사 키워드와 매칭)")
     r.add_argument("--sfx-dir", type=Path)
     r.add_argument("--bgm", type=Path, help="배경음악(사용권 있는 파일만). 목소리 나올 때 자동으로 줄어듦")
@@ -207,6 +238,19 @@ def main(argv: list[str] | None = None) -> int:
     ap_.add_argument("--no-browser", action="store_true")
     ap_.add_argument("--child", action="store_true", help=argparse.SUPPRESS)  # 실행기(launcher)가 띄운 앱
     ap_.set_defaults(func=cmd_app)
+
+    rf = sub.add_parser("reference", help="레퍼런스 영상 → 스타일 카드(컷 리듬·문구 형식·톤·자막 모양)")
+    rfs = rf.add_subparsers(dest="action", required=True)
+    rfs.add_parser("list", help="스타일 카드 목록")
+    ra = rfs.add_parser("add", help="레퍼런스 영상(3~5개 권장)으로 카드 만들기")
+    ra.add_argument("files", nargs="*")
+    ra.add_argument("--link", action="append", help="내 채널·허락받은 영상 링크(여러 번 가능)")
+    ra.add_argument("--name")
+    ra.add_argument("--channel", help="이 채널(프로필)의 기본 카드로 지정")
+    ra.add_argument("--whisper", default="small")
+    rd = rfs.add_parser("delete")
+    rd.add_argument("id")
+    rf.set_defaults(func=cmd_reference)
 
     pr = sub.add_parser("profiles", help="채널 프로필 목록")
     pr.set_defaults(func=cmd_profiles)

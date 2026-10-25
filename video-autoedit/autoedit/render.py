@@ -32,6 +32,7 @@ class RenderOptions:
     highlight: str = "#FFE500"    # 자막 강조 색(채널 프로필)
     handle: str = ""              # 채널 핸들 워터마크(예: @mychannel)
     preview: bool = False         # 저화질 빠른 미리보기(수작업 편집 확인용)
+    caption_look: dict | None = None  # 레퍼런스 스타일 카드의 자막 모양(stylecard.CaptionLook)
 
 
 def preview_platform(p: Platform) -> Platform:
@@ -149,7 +150,7 @@ def compose(plan: EditPlan, timeline: list[Piece], captions: list[Caption], anal
             marks.append((t, e.keyword))
     ass = work / "subs.ass"
     ass.write_text(build_ass(p, captions, _overlays(plan, timeline, dur, opts.handle), marks, resolve_font(opts.font),
-                             opts.highlight), encoding="utf-8")
+                             opts.highlight, look=opts.caption_look), encoding="utf-8")
 
     inputs: list[str] = ["-i", str(body)]
     vchain: list[str] = []
