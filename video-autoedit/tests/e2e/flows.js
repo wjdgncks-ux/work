@@ -241,6 +241,23 @@ async function layout(page, where, selectors) {
     await page.waitForSelector("#plist .pc", { timeout: 5000 });
     check("보관함에서 꺼내면 목록으로 돌아옴", (await page.$$("#plist .pc")).length === 1);
     await layout(page, "프로젝트 목록 도구", ["#pq", "#psort", "#parch"]);
+    // 프로젝트 관리: 용량 확인 → 완성본만 남기기(원본은 남김)
+    await page.click("#plist [data-manage]");
+    await page.waitForSelector("#mSlim");
+    const mtext = await page.textContent("#mbox");
+    check("관리 창: 완성본·중간 파일·원본 용량 표시", /완성본·검수표·기획서/.test(mtext) && /중간 작업 파일/.test(mtext) && /원본 영상/.test(mtext));
+    check("관리 창: 정리 버튼에 확보 용량", /확보\)/.test(await page.textContent("#mSlim")) && !(await page.isDisabled("#mSlim")), await page.textContent("#mSlim"));
+    await layout(page, "관리 창", ["#mSlim", "#mDel"]);
+    await shot(page, "06b-manage");
+    await page.click("#mSlim");
+    await page.waitForFunction(() => document.querySelector("#plist .tag")?.textContent === "정리됨", null, { timeout: 10000 });
+    check("정리 뒤 카드에 '정리됨'·완성본 유지", (await page.textContent("#plist .pc .ver")) === "v1");
+    await page.click("#plist .pc .cv");
+    await page.waitForURL("**/edit", { timeout: 30000 });
+    await page.waitForSelector(".b-main", { timeout: 60000 });
+    check("정리한 프로젝트도 다시 편집 가능(재생용 사본 다시 만듦)", (await page.evaluate(async () => (await fetch("/media/source/0", { headers: { Range: "bytes=0-99" } })).status)) < 300);
+    await page.click("#homeBtn");
+    await page.waitForSelector(".pc");
 
     // 12) 설정·점검
     await page.click('#side [data-page="settings"]');
@@ -266,8 +283,19 @@ async function layout(page, where, selectors) {
     check("설정: 지금 버전 9.9.0·이전 버전 되돌리기 버튼", (await page.textContent("#updBox")).includes("지금 버전 9.9.0") && (await page.textContent("#updBack")).includes("되돌리기"));
     await shot(page, "09-update-settings");
     await layout(page, "설정 화면", ["#sSave"]);
+
+    // 14) 프로젝트 통째로 삭제(마지막 단계: 이후 흐름이 이 프로젝트를 쓰지 않음)
+    await page.click('#side [data-page="home"]');
+    await page.waitForSelector("#plist [data-manage]");
+    const nBefore = (await page.$$("#plist .pc")).length;
+    await page.click("#plist [data-manage]");
+    await page.waitForSelector("#mDel");
+    await page.click("#mDel");
+    await page.waitForFunction(n => document.querySelectorAll("#plist .pc").length === n - 1, nBefore, { timeout: 10000 });
+    check("프로젝트 삭제: 목록에서 사라짐", true, `${nBefore}→${nBefore - 1}`);
+    check("프로젝트 삭제: 완료 안내", (await page.textContent("#toast")).includes("삭제했습니다"));
   } catch (e) {
-    check("흐름 중단 없이 끝까지 진행", false, e.message.split("\n")[0]);
+    check("흐름 중단 없이 끝까지 진행", false, e.message.split("\n")[0]); if (process.env.E2E_DEBUG) console.log(e.message);
     await shot(page, "zz-failure").catch(() => {});
   }
   check("콘솔·요청 오류 없음", results.errors.length === 0, results.errors.slice(0, 5).join(" | "));

@@ -24,7 +24,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import doctor, reference, settings, updater, voice
+from . import doctor, housekeeping, reference, settings, updater, voice
 from .editor import STATIC, EditorState, _whisper_available, make_handler
 from .media import probe
 from .osutil import reveal
@@ -133,6 +133,8 @@ class AppState:
                 "cover": cover, "missing_source": not all(Path(s).exists() for s in meta["sources"]),
                 "topic": brief.get("topic", ""), "notes": (brief.get("notes") or "")[:300],
                 "reference": (brief.get("reference") or {}).get("name", ""), "archived": bool(meta.get("archived")),
+                "slimmed": bool(meta.get("slimmed")),
+                "originals_removed": bool((meta.get("slimmed") or {}).get("originals_removed")),
             }
             self._plist[key] = (updated, entry)
             out.append(entry)
@@ -253,6 +255,8 @@ class AppState:
     def open(self, pid: str) -> None:
         pdir = self.project_dir(pid)
         meta = json.loads((pdir / "project.json").read_text(encoding="utf-8"))
+        if (meta.get("slimmed") or {}).get("originals_removed"):
+            raise ValueError("완성본만 남기고 원본 영상을 지운 프로젝트라 편집할 수 없습니다. 완성본은 '관리 → 폴더 열기'로 볼 수 있습니다")
         missing = [s for s in meta["sources"] if not Path(s).exists()]
         if missing:
             raise ValueError(f"원본 영상이 옮겨졌거나 지워졌습니다: {Path(missing[0]).name}")
@@ -330,6 +334,41 @@ class AppState:
         request_restart()
         return self.update_job
 
+    # ---------- 정리·삭제 ----------
+    def _guard(self, pdir: Path) -> None:
+        if self.job.get("state") == "running":
+            raise ValueError("자동 편집이 끝난 뒤에 정리·삭제하세요")
+        if self.editor and self.editor.project.pdir.resolve() == pdir.resolve() and self.editor.job.get("state") == "running":
+            raise ValueError("이 프로젝트를 내보내는 중입니다. 끝난 뒤에 정리·삭제하세요")
+
+    def usage(self, pid: str) -> dict:
+        u = housekeeping.usage(self.workspace, self.project_dir(pid))
+        return {**u, **{f"{k}_text": housekeeping.human(u[k]) for k in ("work", "outputs", "originals")}}
+
+    def slim(self, pid: str, originals: bool) -> dict:
+        pdir = self.project_dir(pid)
+        self._guard(pdir)
+        freed = housekeeping.slim(self.workspace, pdir, originals=originals)
+        if originals and self.editor and self.editor.project.pdir.resolve() == pdir.resolve():
+            self.editor = None
+        return {"freed": freed, "freed_text": housekeeping.human(freed)}
+
+    def delete(self, pid: str, originals: bool) -> dict:
+        pdir = self.project_dir(pid)
+        self._guard(pdir)
+        if self.editor and self.editor.project.pdir.resolve() == pdir.resolve():
+            self.editor = None
+        freed = housekeeping.delete(self.workspace, pdir, originals=originals)
+        return {"freed": freed, "freed_text": housekeeping.human(freed)}
+
+    def slim_archived(self, originals: bool) -> dict:
+        freed, n = 0, 0
+        for p in self.projects():
+            if p["archived"]:
+                freed += self.slim(p["id"], originals)["freed"]
+                n += 1
+        return {"projects": n, "freed": freed, "freed_text": housekeeping.human(freed)}
+
     def set_archived(self, pid: str, archived: bool) -> None:
         """보관: 지우지 않고 목록에서만 숨긴다(보관함에서 다시 꺼낼 수 있음)."""
         pj = self.project_dir(pid) / "project.json"
@@ -372,6 +411,8 @@ def make_app_handler(app: AppState):
                     return self._json(app.job)
                 if path == "/app/api/update":
                     return self._json(app.update_state())
+                if path == "/app/api/project/usage":
+                    return self._json(app.usage(q["id"][0]))
                 if path == "/app/media/cover":
                     pdir = app.project_dir(q["id"][0])
                     return self._file(pdir / Path(q["file"][0]).name)
@@ -402,6 +443,12 @@ def make_app_handler(app: AppState):
                 if path == "/app/api/checks":
                     app.checks(refresh=True)
                     return self._json(app.home())
+                if path == "/app/api/project/slim":
+                    return self._json(app.slim(data["id"], bool(data.get("originals"))))
+                if path == "/app/api/project/delete":
+                    return self._json(app.delete(data["id"], bool(data.get("originals", True))))
+                if path == "/app/api/archive/slim":
+                    return self._json(app.slim_archived(bool(data.get("originals"))))
                 if path == "/app/api/archive":
                     app.set_archived(data["id"], bool(data.get("archived", True)))
                     return self._json({"ok": True})

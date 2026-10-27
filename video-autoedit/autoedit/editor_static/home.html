@@ -58,13 +58,20 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:26px 0 12px;display:fl
 .pc .meta{color:var(--muted);font-size:11px;display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
 .pc .st{position:absolute;left:8px;top:8px;font-size:11px;padding:1px 8px;border-radius:999px;font-weight:700}
 .pc .ver{position:absolute;right:8px;top:8px;font-size:11px;padding:1px 6px;border-radius:5px;background:#000a}
-.pc .acts{position:absolute;right:8px;bottom:58px;display:flex;gap:4px;opacity:0;transition:.12s}.pc:hover .acts{opacity:1}
-.pc .acts button{padding:3px 8px;font-size:11px;background:#000c}
+.pc .acts{position:absolute;left:8px;right:8px;bottom:58px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px;opacity:0;transition:.12s}.pc:hover .acts{opacity:1}
+.pc .acts button{padding:3px 8px;font-size:11px;background:#000c;white-space:nowrap}.pc .acts select{max-width:100%;font-size:11px}
 .st-편집중{background:#3a3a42;color:#ddd}.st-컨펌요청{background:#2a6ae0;color:#fff}.st-수정요청{background:#c2410c;color:#fff}.st-승인{background:#15803d;color:#fff}.st-업로드완료{background:#555;color:#ddd}
 .empty{color:var(--dim);text-align:center;padding:40px}
 /* 모달 */
 #modal{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:10}
 #modal.on{display:flex}
+.usage{display:grid;grid-template-columns:1fr auto auto;gap:6px 12px;background:var(--panel2);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:13px}
+.usage b{font-variant-numeric:tabular-nums;text-align:right}
+.usage .muted{font-size:12px}
+.sec.danger{border-top:1px solid #4a2323;padding-top:12px}
+button.danger{background:#4a1d1d;border-color:#a33;color:#ffb3b3;font-weight:700}
+button.danger:hover{background:#5c2222}
+.pc .tag{background:#2b2b31;border-radius:4px;padding:0 5px}
 #mbox{width:min(820px,94vw);max-height:92vh;overflow:auto;background:var(--panel);border:1px solid var(--line2);border-radius:14px;padding:20px 22px}
 #mbox h3{margin:0 0 4px;font-size:17px;display:flex;align-items:center}#mbox h3 span{flex:1}
 .sec{margin-top:16px}.sec>.t{font-weight:700;margin-bottom:8px}
@@ -200,7 +207,8 @@ function renderHome() {
     <h2>프로젝트 <span class="muted small" id="pcount"></span></h2>
     <div class="ptools"><input id="pq" type="search" placeholder="이름·주제·편집 요청으로 찾기" value="${esc(filter.q)}">
       <select id="psort"><option value="updated" ${filter.sort === "updated" ? "selected" : ""}>최근 수정순</option><option value="old" ${filter.sort === "old" ? "selected" : ""}>오래된순</option><option value="name" ${filter.sort === "name" ? "selected" : ""}>이름순</option></select>
-      <button id="parch" class="${filter.archived ? "on" : ""}">${filter.archived ? "보관함 닫기" : "보관함"} <span class="muted small">${H.projects.filter(p => p.archived).length}</span></button></div>
+      <button id="parch" class="${filter.archived ? "on" : ""}">${filter.archived ? "보관함 닫기" : "보관함"} <span class="muted small">${H.projects.filter(p => p.archived).length}</span></button>
+      ${filter.archived && H.projects.some(p => p.archived) ? `<button id="parchSlim" title="보관한 프로젝트의 중간 작업 파일을 지웁니다. 완성본은 남습니다">보관함 모두 정리</button>` : ""}</div>
     <div class="filters" id="pfilters"></div>
     <div id="plist"></div>`;
   renderList();
@@ -231,12 +239,12 @@ function renderList() {
         <div class="cv" style="${p.cover ? `background-image:url('/app/media/cover?id=${encUrl(p.id)}&file=${encUrl(p.cover)}')` : ""}">${p.cover ? "" : "▶"}</div>
         <span class="st st-${p.status.replace(/\s/g, "")}">${esc(p.status)}</span>
         ${p.versions ? `<span class="ver">v${p.versions}</span>` : ""}
-        <div class="acts"><button data-reveal="${esc(p.id)}">폴더</button>
+        <div class="acts"><button data-manage="${esc(p.id)}" title="폴더 열기·디스크 정리·삭제">관리</button>
           <button data-arch="${esc(p.id)}" data-v="${p.archived ? 0 : 1}" title="${p.archived ? "목록으로 꺼내기" : "지우지 않고 목록에서 숨기기"}">${p.archived ? "꺼내기" : "보관"}</button>
           <select data-status="${esc(p.id)}">${H.review_states.map(s => `<option ${s === p.status ? "selected" : ""}>${s}</option>`).join("")}</select></div>
         <div class="body"><div class="nm">${esc(p.name)}</div>
           <div class="meta"><span>${esc(profName(p.profile))}</span><span>${esc(p.platform_label)}</span><span>${STYLE_OF[p.style] || ""}</span></div>
-          <div class="meta"><span>${esc(p.updated_text)}</span>${p.missing_source ? `<span class="bad">원본 없음</span>` : ""}</div></div>
+          <div class="meta"><span>${esc(p.updated_text)}</span>${p.originals_removed ? `<span class="tag">완성본만</span>` : p.missing_source ? `<span class="bad">원본 없음</span>` : p.slimmed ? `<span class="tag">정리됨</span>` : ""}</div></div>
       </div>`).join("")}</div>
       ${list.length > shown ? `<button class="more" id="pmore">더 보기 (${list.length - shown}개 더)</button>` : ""}`
     : `<div class="empty">${H.projects.length ? (filter.archived ? "보관한 프로젝트가 없습니다." : "조건에 맞는 프로젝트가 없습니다.") : "아직 프로젝트가 없습니다. 위에 영상을 끌어다 놓아 시작하세요."}</div>`;
@@ -372,7 +380,62 @@ $("#modal").addEventListener("click", async e => {
   }
   const op = t.closest("[data-openp]"); if (op) openProject(op.dataset.openp);
 });
-function closeModal() { $("#modal").classList.remove("on"); uploads = []; refUploads = []; }
+/* 프로젝트 관리: 폴더·보관·디스크 정리·삭제 */
+let managing = null, mUsage = null;
+async function openManage(id) {
+  const p = H.projects.find(x => x.id === id); if (!p) return;
+  managing = id;
+  $("#mbox").innerHTML = `<h3><span>${esc(p.name)}</span><button class="ghost" id="mClose">✕</button></h3><div class="muted">용량을 확인하는 중…</div>`;
+  $("#modal").classList.add("on");
+  try { mUsage = await api("/app/api/project/usage?id=" + encodeURIComponent(id)); } catch (e) { toast(e.message, 6000); return closeModal(); }
+  const u = mUsage;
+  const srcNote = [u.originals_shared ? `다른 프로젝트도 쓰는 원본 ${u.originals_shared}개는 남김` : "", u.originals_outside ? `작업 폴더 밖 원본 ${u.originals_outside}개는 건드리지 않음` : ""].filter(Boolean).join(" · ");
+  $("#mbox").innerHTML = `<h3><span>${esc(p.name)}</span><button class="ghost" id="mClose">✕</button></h3>
+    <div class="muted small">${esc(profName(p.profile))} · ${esc(p.platform_label)} · 완성본 ${u.versions}개${u.slimmed ? ` · ${esc(u.slimmed.at)}에 정리함` : ""}</div>
+    <div class="usage">
+      <span>완성본·검수표·기획서</span><b>${esc(u.outputs_text)}</b><span class="muted">정리해도 남음</span>
+      <span>중간 작업 파일</span><b>${esc(u.work_text)}</b><span class="muted">다시 만들 수 있음</span>
+      <span>원본 영상</span><b>${esc(u.originals_text)}</b><span class="muted">${u.originals_removed || p.originals_removed ? "지움" : "편집에 필요"}</span></div>
+    ${srcNote ? `<div class="muted small" style="margin-top:6px">${esc(srcNote)}</div>` : ""}
+    <div class="sec"><div class="row"><button id="mReveal">폴더 열기</button><button id="mArch">${p.archived ? "보관함에서 꺼내기" : "보관하기"}</button></div></div>
+    <div class="sec"><div class="t">디스크 정리 — 완성본만 남기기</div>
+      <div class="muted small">중간 작업 파일을 지웁니다. 다시 편집하거나 내보낼 때 자동으로 새로 만들어집니다.</div>
+      <label class="ck"><input type="checkbox" id="slimOrig" ${u.originals ? "" : "disabled"}> 원본 영상도 지우기 — <b>이후 이 프로젝트는 다시 편집할 수 없습니다</b></label>
+      <button class="accent" id="mSlim">정리하기</button></div>
+    <div class="sec danger"><div class="t">프로젝트 삭제</div>
+      <div class="muted small">완성본·검수표·기획서까지 모두 지웁니다. <b>되돌릴 수 없습니다.</b></div>
+      <label class="ck"><input type="checkbox" id="delOrig" checked> 이 프로젝트만 쓰던 원본 영상도 지우기 <span class="muted small">(시작 화면에서 올린 사본만 · 내 PC의 원래 파일은 그대로)</span></label>
+      <button class="danger" id="mDel">프로젝트 삭제</button></div>`;
+  slimLabel();
+}
+function slimLabel() {
+  const b = $("#mSlim"); if (!b || !mUsage) return;
+  const n = mUsage.work + ($("#slimOrig")?.checked ? mUsage.originals : 0);
+  b.textContent = n > 0 ? `정리하기 (약 ${human(n)} 확보)` : "지울 중간 파일이 없습니다";
+  b.disabled = n <= 0;
+}
+const human = n => n < 1048576 ? `${Math.round(n / 1024)}KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)}MB` : `${(n / 1073741824).toFixed(1)}GB`;
+$("#modal").addEventListener("change", e => { if (e.target.id === "slimOrig") slimLabel(); });
+$("#modal").addEventListener("click", async e => {
+  const t = e.target; if (!managing || !mUsage) return;
+  const id = managing, p = H.projects.find(x => x.id === id);
+  try {
+    if (t.id === "mReveal") { const j = await api("/app/api/reveal", {id}); if (!j.ok) toast("폴더 위치: " + j.path, 6000); }
+    else if (t.id === "mArch") { await api("/app/api/archive", {id, archived: !p.archived}); closeModal(); await refresh(); toast(p.archived ? "목록으로 꺼냈습니다" : "보관했습니다. '보관함'에서 다시 꺼낼 수 있습니다"); }
+    else if (t.id === "mSlim") {
+      const orig = $("#slimOrig").checked;
+      if (orig && !confirm("원본 영상까지 지우면 이 프로젝트는 다시 편집할 수 없습니다(완성본만 남음). 계속할까요?")) return;
+      busy(true, "정리하는 중…"); const j = await api("/app/api/project/slim", {id, originals: orig});
+      closeModal(); await refresh(); toast(`정리했습니다 · ${j.freed_text} 확보`, 5000);
+    }
+    else if (t.id === "mDel") {
+      if (!confirm(`'${p.name}' 프로젝트를 완전히 삭제합니다. 완성본도 지워지고 되돌릴 수 없습니다. 삭제할까요?`)) return;
+      busy(true, "삭제하는 중…"); const j = await api("/app/api/project/delete", {id, originals: $("#delOrig").checked});
+      closeModal(); await refresh(); toast(`삭제했습니다 · ${j.freed_text} 확보`, 5000);
+    }
+  } catch (err) { toast(err.message, 7000); } finally { busy(false); }
+});
+function closeModal() { managing = null; mUsage = null; $("#modal").classList.remove("on"); uploads = []; refUploads = []; }
 async function showProgress() {
   $("#modal").classList.add("on");
   const j = H.job = await api("/app/api/job");
@@ -411,9 +474,18 @@ $("#main").addEventListener("click", async e => {
   if (t.closest("#parch")) { filter.archived = !filter.archived; filter.status = ""; shown = PAGE; return renderHome(); }
   const ar = t.closest("[data-arch]"); if (ar) { e.stopPropagation();
     try { await api("/app/api/archive", {id: ar.dataset.arch, archived: ar.dataset.v === "1"}); await refresh(); toast(ar.dataset.v === "1" ? "보관했습니다. 위의 '보관함'에서 다시 꺼낼 수 있습니다" : "목록으로 꺼냈습니다"); } catch (err) { toast(err.message); } return; }
+  const mg = t.closest("[data-manage]"); if (mg) { e.stopPropagation(); return openManage(mg.dataset.manage); }
+  if (t.closest("#parchSlim")) {
+    const n = H.projects.filter(p => p.archived).length;
+    if (!confirm(`보관한 프로젝트 ${n}개의 중간 작업 파일을 지웁니다. 완성본·원본은 남습니다. 계속할까요?`)) return;
+    busy(true, "보관함 정리 중…");
+    try { const j = await api("/app/api/archive/slim", {originals: false}); await refresh(); toast(`${j.projects}개 정리 · ${j.freed_text} 확보`, 5000); } catch (err) { toast(err.message, 7000); } finally { busy(false); }
+    return;
+  }
   const rv = t.closest("[data-reveal]"); if (rv) { e.stopPropagation(); const j = await api("/app/api/reveal", {id: rv.dataset.reveal}); if (!j.ok) toast("폴더 위치: " + j.path, 6000); return; }
   if (t.closest("[data-status]")) return;
-  const op = t.closest("[data-open]"); if (op) openProject(op.dataset.open);
+  const op = t.closest("[data-open]"); if (op) { const p = H.projects.find(x => x.id === op.dataset.open);
+    return p?.originals_removed ? openManage(p.id) : openProject(op.dataset.open); }
 });
 $("#main").addEventListener("input", e => { if (e.target.id === "pq") { filter.q = e.target.value; shown = PAGE; renderList(); } });
 $("#main").addEventListener("change", async e => {

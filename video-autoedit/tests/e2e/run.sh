@@ -11,7 +11,7 @@ PORT="${E2E_PORT:-8790}"
 rm -rf "$OUT"; mkdir -p "$OUT"
 export NODE_PATH="${NODE_PATH:-$HERE/node_modules:$(npm root -g 2>/dev/null)}"
 
-for VP in "1366x768" "1920x1080"; do
+for VP in ${E2E_VPS:-"1366x768" "1920x1080"}; do
   rm -rf "$WORK"/*
   python3 "$HERE/harness.py" --root "$WORK" --port "$PORT" > "$OUT/server-$VP.log" 2>&1 &
   PID=$!
