@@ -293,7 +293,7 @@ class Project:
         sheet = self.pdir / f"검수표_v{version}.html"
         sheet.write_text(review_html(name=self.name, version=version, platform=self.platform, plan=plan, card=card,
                                      info=info, creator=creator, voices_used=list(voices.values()),
-                                     reference=self._reference_label()), encoding="utf-8")
+                                     reference=self._reference_label(), notes=self.brief.notes), encoding="utf-8")
         text = self.pdir / f"업로드문구_v{version}.txt"
         text.write_text(upload_text(plan), encoding="utf-8")
         return {"sheet": str(sheet), "text": str(text)}

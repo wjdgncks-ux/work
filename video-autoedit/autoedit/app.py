@@ -59,6 +59,7 @@ class AppState:
         self.update_job: dict = {"state": "idle"}
         self.lock = threading.Lock()
         self._checks: list[dict] | None = None
+        self._plist: dict[str, tuple[float, dict]] = {}  # project.json 경로 → (수정 시각, 카드 정보): 프로젝트가 많아도 빠르게
 
     # ---------- 경로 ----------
     @property
@@ -91,17 +92,26 @@ class AppState:
 
     def projects(self) -> list[dict]:
         ws = self.workspace
-        out = []
+        out, seen = [], set()
         for pj in list(ws.glob("*/*/*/project.json")) + list(ws.glob("*/*/project.json")):
             pdir = pj.parent
-            if "_analysis" in pdir.parts or "원본영상" in pdir.parts:
+            if "_analysis" in pdir.parts or "원본영상" in pdir.parts or "레퍼런스" in pdir.parts:
+                continue
+            plan = pdir / "plan.json"
+            try:
+                updated = max(pj.stat().st_mtime, plan.stat().st_mtime if plan.exists() else 0)
+            except OSError:
+                continue
+            key = str(pj)
+            seen.add(key)
+            hit = self._plist.get(key)
+            if hit and hit[0] == updated:
+                out.append(hit[1])
                 continue
             try:
                 meta = json.loads(pj.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
-            plan = pdir / "plan.json"
-            updated = max(pj.stat().st_mtime, plan.stat().st_mtime if plan.exists() else 0)
             versions = meta.get("versions") or []
             cover = ""
             if versions and (pdir / versions[-1].get("cover", "")).is_file() and versions[-1].get("cover"):
@@ -110,7 +120,8 @@ class AppState:
                 cover = "preview.cover.jpg"
             name = Path(meta["sources"][0]).stem if len(meta["sources"]) == 1 else "merged"
             prof = meta.get("profile")
-            out.append({
+            brief = meta.get("brief") or {}
+            entry = {
                 "id": pdir.relative_to(ws).as_posix(), "name": name, "platform": meta.get("platform"),
                 "platform_label": " + ".join(PLATFORMS[k].label.replace("Instagram ", "").replace("YouTube ", "")
                                              for k in (meta.get("platforms") or [meta.get("platform")]) if k in PLATFORMS),
@@ -120,7 +131,12 @@ class AppState:
                 "created": meta.get("created", ""), "updated": updated,
                 "updated_text": time.strftime("%m-%d %H:%M", time.localtime(updated)),
                 "cover": cover, "missing_source": not all(Path(s).exists() for s in meta["sources"]),
-            })
+                "topic": brief.get("topic", ""), "notes": (brief.get("notes") or "")[:300],
+                "reference": (brief.get("reference") or {}).get("name", ""), "archived": bool(meta.get("archived")),
+            }
+            self._plist[key] = (updated, entry)
+            out.append(entry)
+        self._plist = {k: v for k, v in self._plist.items() if k in seen}
         out.sort(key=lambda p: -p["updated"])
         return out
 
@@ -199,7 +215,8 @@ class AppState:
             opts = RunOptions(
                 profile=d.get("profile") or None, style=d.get("style") or None,
                 platform=",".join(platforms) if platforms else None, mode=d.get("mode", "each"),
-                out=self.workspace, brief={"topic": d.get("topic", ""), "cta": d.get("cta", "")},
+                out=self.workspace, brief={"topic": d.get("topic", ""), "cta": d.get("cta", ""),
+                                           "notes": str(d.get("notes") or "").strip()[:2000]},
                 sponsored=bool(d.get("sponsored")), whisper=self.whisper_model() if d.get("captions", True) else None,
                 plan_only=not d.get("auto_render"),
             )
@@ -313,6 +330,13 @@ class AppState:
         request_restart()
         return self.update_job
 
+    def set_archived(self, pid: str, archived: bool) -> None:
+        """보관: 지우지 않고 목록에서만 숨긴다(보관함에서 다시 꺼낼 수 있음)."""
+        pj = self.project_dir(pid) / "project.json"
+        meta = json.loads(pj.read_text(encoding="utf-8"))
+        meta["archived"] = bool(archived)
+        pj.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+
     def set_status(self, pid: str, status: str) -> None:
         if status not in REVIEW_STATES:
             raise ValueError("알 수 없는 상태")
@@ -378,6 +402,9 @@ def make_app_handler(app: AppState):
                 if path == "/app/api/checks":
                     app.checks(refresh=True)
                     return self._json(app.home())
+                if path == "/app/api/archive":
+                    app.set_archived(data["id"], bool(data.get("archived", True)))
+                    return self._json({"ok": True})
                 if path == "/app/api/status":
                     app.set_status(data["id"], data["status"])
                     return self._json({"ok": True})

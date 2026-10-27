@@ -869,6 +869,11 @@ async function scPost(body, msg) {
   try { S = await api("/api/reference", body); scDraft = null; await runDiag(); renderOverlay(true); renderProps(); toast(msg); }
   catch (e) { toast(e.message, 7000); } finally { busy(false); }
 }
+$("#rbody").addEventListener("change", async e => {
+  if (!e.target.matches("[data-notes]")) return;
+  try { await api("/api/brief", {notes: e.target.value}); S.meta.brief.notes = e.target.value.trim(); toast("편집 요청을 저장했습니다. 'AI 편집' → 다시 편집하면 반영됩니다"); }
+  catch (err) { toast(err.message, 6000); }
+});
 $("#rbody").addEventListener("change", e => { if (e.target.closest("[data-scc]") && scDraft) { scCollect(); S.meta.brief.reference = JSON.parse(JSON.stringify(scDraft)); renderOverlay(true); } });
 $("#rbody").addEventListener("click", async e => {
   const id = e.target.id;
@@ -896,6 +901,8 @@ function renderProps() {
       <div class="fld"><label>해시태그 (띄어쓰기로 구분)</label><input data-tags value="${esc(plan.hashtags.join(" "))}"></div>
       <div class="fld"><label><input type="checkbox" data-spon ${plan.sponsored ? "checked" : ""}> 협찬·광고·이해관계 있음</label><div class="note">켜면 영상 전체에 '유료광고' 표시 + 캡션 첫 줄 #유료광고</div></div>
       <div class="fld"><label>주제</label><input data-p="topic" value="${esc(plan.topic)}"></div>
+      <div class="fld"><label>편집 요청·참고사항</label><textarea data-notes rows="4" placeholder="예) 30초 안으로, 첫 장면은 완성품부터">${esc(S.meta.brief.notes || "")}</textarea>
+        <div class="note">고친 뒤 왼쪽 'AI 편집' → 다시 편집하면 반영됩니다. AI 대본에도 쓰입니다.</div></div>
       <div class="note">스타일: <b>${esc(S.meta.styles.find(s => s.key === S.meta.style)?.label)}</b> · 길이 ${sec(L.total)} (권장 ${S.meta.platform.target[0]}~${S.meta.platform.target[1]}s)</div>`;
     return;
   }

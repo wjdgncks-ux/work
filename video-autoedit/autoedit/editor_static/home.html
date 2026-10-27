@@ -40,6 +40,14 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:26px 0 12px;display:fl
 .updbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
 .updbox .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.ptools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.ptools input{flex:1;min-width:180px;max-width:360px}
+.ptools button.on{border-color:var(--accent);color:var(--accent)}
+.filters button small{color:var(--dim);margin-left:4px}
+.more{display:block;margin:14px auto 0}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chips button{padding:3px 10px;border-radius:999px;font-size:12px}
+#notes{width:100%;min-height:72px;resize:vertical;background:#121214;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;color:var(--text);font:inherit}
 .filters button{padding:4px 12px;border-radius:999px}.filters button.on{border-color:var(--accent);color:var(--accent)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
 .pc{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:pointer;position:relative}
@@ -108,7 +116,8 @@ async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j;
 }
-let H = null, page = "home", filter = {profile: "", status: ""};
+let H = null, page = "home", filter = {profile: "", status: "", q: "", sort: "updated", archived: false}, shown = 24;
+const PAGE = 24;
 const STYLE_OF = {explainer: "설명형", funny: "유머", demo: "시연"};
 const profName = k => (H.profiles.find(p => p.key === k) || {}).name || (k ? k : "프로필 없음");
 
@@ -179,7 +188,6 @@ function render() { $$("#side [data-page]").forEach(b => b.classList.toggle("on"
 /* ---------------- 홈 ---------------- */
 function renderHome() {
   const bad = H.checks.filter(c => c.required && !c.ok);
-  const list = H.projects.filter(p => (!filter.profile || p.profile === filter.profile) && (!filter.status || p.status === filter.status));
   $("#main").innerHTML = `
     <h1>${H.settings.user_name ? esc(H.settings.user_name) + "님, " : ""}오늘은 어떤 영상을 만들까요?</h1>
     <div class="muted small" style="margin-bottom:16px">작업 폴더: ${esc(H.workspace)}</div>
@@ -189,29 +197,55 @@ function renderHome() {
     ${updBanner()}
     <div id="drop"><div class="plus">+</div><div><b>새 프로젝트</b><div class="muted">촬영한 영상을 여기에 끌어다 놓거나 눌러서 고르세요. 여러 개도 됩니다.</div>
       <div class="muted small">AI가 컷·후킹·자막·효과음을 먼저 편집해 두고, 편집기에서 다듬습니다.</div></div></div>
-    <h2>최근 프로젝트 <span class="muted small">${list.length}개</span></h2>
-    <div class="filters">
-      <button data-fp="" class="${!filter.profile ? "on" : ""}">전체 채널</button>
-      ${H.profiles.map(p => `<button data-fp="${esc(p.key)}" class="${filter.profile === p.key ? "on" : ""}">${esc(p.name)}</button>`).join("")}
+    <h2>프로젝트 <span class="muted small" id="pcount"></span></h2>
+    <div class="ptools"><input id="pq" type="search" placeholder="이름·주제·편집 요청으로 찾기" value="${esc(filter.q)}">
+      <select id="psort"><option value="updated" ${filter.sort === "updated" ? "selected" : ""}>최근 수정순</option><option value="old" ${filter.sort === "old" ? "selected" : ""}>오래된순</option><option value="name" ${filter.sort === "name" ? "selected" : ""}>이름순</option></select>
+      <button id="parch" class="${filter.archived ? "on" : ""}">${filter.archived ? "보관함 닫기" : "보관함"} <span class="muted small">${H.projects.filter(p => p.archived).length}</span></button></div>
+    <div class="filters" id="pfilters"></div>
+    <div id="plist"></div>`;
+  renderList();
+}
+function projectMatches(p) {
+  if (!!p.archived !== filter.archived) return false;
+  if (filter.profile && p.profile !== filter.profile) return false;
+  if (filter.status && p.status !== filter.status) return false;
+  const q = filter.q.trim().toLowerCase();
+  return !q || [p.name, p.topic, p.notes, p.reference, p.platform_label, profName(p.profile)].join(" ").toLowerCase().includes(q);
+}
+function renderList() {
+  const base = H.projects.filter(p => !!p.archived === filter.archived);
+  const list = H.projects.filter(projectMatches);
+  if (filter.sort === "old") list.reverse();
+  if (filter.sort === "name") list.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  const cnt = (f) => base.filter(f).length;
+  $("#pcount").textContent = `${list.length}개${filter.archived ? " · 보관함" : ""}`;
+  $("#pfilters").innerHTML = `
+      <button data-fp="" class="${!filter.profile ? "on" : ""}">전체 채널<small>${base.length}</small></button>
+      ${H.profiles.map(p => `<button data-fp="${esc(p.key)}" class="${filter.profile === p.key ? "on" : ""}">${esc(p.name)}<small>${cnt(x => x.profile === p.key)}</small></button>`).join("")}
       <span style="width:12px"></span>
       <button data-fs="" class="${!filter.status ? "on" : ""}">모든 상태</button>
-      ${H.review_states.map(s => `<button data-fs="${s}" class="${filter.status === s ? "on" : ""}">${s}</button>`).join("")}
-    </div>
-    ${list.length ? `<div class="grid">${list.map(p => `
+      ${H.review_states.map(s => `<button data-fs="${s}" class="${filter.status === s ? "on" : ""}">${s}<small>${cnt(x => x.status === s)}</small></button>`).join("")}`;
+  const page_ = list.slice(0, shown);
+  $("#plist").innerHTML = list.length ? `<div class="grid">${page_.map(p => `
       <div class="pc" data-open="${esc(p.id)}" title="${esc(p.id)}">
         <div class="cv" style="${p.cover ? `background-image:url('/app/media/cover?id=${encUrl(p.id)}&file=${encUrl(p.cover)}')` : ""}">${p.cover ? "" : "▶"}</div>
         <span class="st st-${p.status.replace(/\s/g, "")}">${esc(p.status)}</span>
         ${p.versions ? `<span class="ver">v${p.versions}</span>` : ""}
         <div class="acts"><button data-reveal="${esc(p.id)}">폴더</button>
+          <button data-arch="${esc(p.id)}" data-v="${p.archived ? 0 : 1}" title="${p.archived ? "목록으로 꺼내기" : "지우지 않고 목록에서 숨기기"}">${p.archived ? "꺼내기" : "보관"}</button>
           <select data-status="${esc(p.id)}">${H.review_states.map(s => `<option ${s === p.status ? "selected" : ""}>${s}</option>`).join("")}</select></div>
         <div class="body"><div class="nm">${esc(p.name)}</div>
           <div class="meta"><span>${esc(profName(p.profile))}</span><span>${esc(p.platform_label)}</span><span>${STYLE_OF[p.style] || ""}</span></div>
           <div class="meta"><span>${esc(p.updated_text)}</span>${p.missing_source ? `<span class="bad">원본 없음</span>` : ""}</div></div>
-      </div>`).join("")}</div>` : `<div class="empty">아직 프로젝트가 없습니다. 위에 영상을 끌어다 놓아 시작하세요.</div>`}`;
+      </div>`).join("")}</div>
+      ${list.length > shown ? `<button class="more" id="pmore">더 보기 (${list.length - shown}개 더)</button>` : ""}`
+    : `<div class="empty">${H.projects.length ? (filter.archived ? "보관한 프로젝트가 없습니다." : "조건에 맞는 프로젝트가 없습니다.") : "아직 프로젝트가 없습니다. 위에 영상을 끌어다 놓아 시작하세요."}</div>`;
 }
 
 /* 업로드 → 새 프로젝트 설정 */
 let uploads = [], refUploads = [], cfg = null;
+const NOTE_CHIPS = ["30초 안으로", "첫 장면은 결과·완성품부터", "제품 이름·가격이 잘 보이게", "말 없는 구간은 과감히 컷", "자막은 핵심 단어 위주", "웃긴 리액션은 길게 살리기", "배경음악 없이 원음 위주"];
+const lastNotes = () => { try { return localStorage.getItem("notes:" + (cfg?.profile || "")) || ""; } catch (e) { return ""; } };
 const chDefault = () => { const id = (H.channel_styles || {})[cfg.profile || ""]; return (H.style_cards || []).find(c => c.id === id) || null; };
 function refDefaults() { cfg.ref = {mode: chDefault() ? "default" : "none", card_id: (H.style_cards || [])[0]?.id || "", links: "", consent: false, name: "", save_default: false}; }
 function refSection() {
@@ -289,6 +323,10 @@ function openNew() {
       ${prof?.notes ? `<div class="muted small" style="margin-top:6px">${esc(prof.notes)}</div>` : ""}</div>
     <div class="sec"><div class="t">어떤 영상인가요?</div><div class="opts">
       ${H.styles.map(s => `<div class="opt ${cfg.style === s.key ? "on" : ""}" data-style="${s.key}"><b>${esc(s.label)}</b><small>${esc(s.desc)}</small></div>`).join("")}</div></div>
+    <div class="sec"><div class="t">편집 요청·참고사항 <span class="muted small">(선택 · 적을수록 원하는 영상에 가까워집니다)</span></div>
+      <textarea id="notes" placeholder="예) 30초 안으로. 첫 장면은 완성된 요리부터. 가격 이야기는 빼 주세요. 친구한테 말하듯 가볍게.">${esc(cfg.notes || "")}</textarea>
+      <div class="chips">${NOTE_CHIPS.map(c => `<button data-chip="${esc(c)}">+ ${esc(c)}</button>`).join("")}${lastNotes() ? `<button data-chip-last>지난 요청 불러오기</button>` : ""}</div>
+      ${H.settings.anthropic ? "" : `<div class="warnline" style="margin-top:6px">Claude 키가 없으면 편집 요청 문구는 반영되지 않습니다(규칙 기반 편집). 설정·점검에서 키를 넣으세요.</div>`}</div>
     ${refSection()}
     <div class="sec"><div class="t">어디에 올리나요?</div><div class="row">
       ${H.platforms.map(p => `<label class="ck"><input type="checkbox" data-plat="${p.key}" ${cfg.platforms.includes(p.key) ? "checked" : ""}> ${esc(p.label)}</label>`).join("")}</div></div>
@@ -302,7 +340,7 @@ function openNew() {
 }
 function readCfg() {
   const m = document.querySelector("input[name=mode]:checked"); if (m) cfg.mode = m.value;
-  cfg.topic = $("#topic")?.value || ""; cfg.sponsored = !!$("#spon")?.checked; cfg.captions = !!$("#caps")?.checked; cfg.auto_render = !!$("#auto")?.checked;
+  cfg.topic = $("#topic")?.value || ""; cfg.notes = $("#notes")?.value ?? cfg.notes ?? ""; cfg.sponsored = !!$("#spon")?.checked; cfg.captions = !!$("#caps")?.checked; cfg.auto_render = !!$("#auto")?.checked;
   cfg.platforms = $$("[data-plat]").filter(c => c.checked).map(c => c.dataset.plat);
   readRef();
 }
@@ -315,6 +353,8 @@ $("#modal").addEventListener("click", async e => {
   const pr = t.closest("[data-prof]");
   if (pr) { readCfg(); cfg.profile = pr.dataset.prof; const p = H.profiles.find(x => x.key === cfg.profile); if (p) { cfg.style = p.style || cfg.style; cfg.platforms = (p.platforms || "reels").split(","); }
     if (cfg.ref.mode === "default" || cfg.ref.mode === "none") cfg.ref.mode = chDefault() ? "default" : "none"; return openNew(); }
+  const chip = t.closest("[data-chip]"); if (chip) { const ta = $("#notes"); ta.value = (ta.value.trim() ? ta.value.trim() + "\n" : "") + chip.dataset.chip; cfg.notes = ta.value; return; }
+  if (t.closest("[data-chip-last]")) { $("#notes").value = cfg.notes = lastNotes(); return; }
   const rmode = t.closest("[data-refmode]"); if (rmode) { readCfg(); cfg.ref.mode = rmode.dataset.refmode; return openNew(); }
   if (t.id === "refAdd") { $("#refPick").value = ""; return $("#refPick").click(); }
   const rrm = t.closest("[data-rrm]"); if (rrm) { refUploads.splice(+rrm.dataset.rrm, 1); return drawFiles(); }
@@ -326,6 +366,7 @@ $("#modal").addEventListener("click", async e => {
     if (r.mode === "new" && !refUploads.some(u => u.done) && !links.length) return toast("레퍼런스 영상을 넣거나 링크를 적어 주세요");
     if (links.length && !r.consent) return toast("링크 영상이 내 영상이거나 허락받은 영상인지 확인 체크가 필요합니다", 6000);
     const reference = {...r, links, files: refUploads.filter(u => u.done).map(u => u.id)};
+    try { if (cfg.notes.trim()) localStorage.setItem("notes:" + (cfg.profile || ""), cfg.notes.trim()); } catch (e) { /* 저장 못 해도 진행 */ }
     try { H.job = await api("/app/api/create", {...cfg, reference, files: uploads.filter(u => u.done).map(u => u.id)}); showProgress(); }
     catch (err) { toast(err.message, 6000); }
   }
@@ -358,19 +399,25 @@ async function openProject(id) {
   try { await api("/app/api/open", {id}); location.href = "/edit"; }
   catch (e) { busy(false); toast(e.message, 7000); }
 }
-async function refresh() { H = await api("/app/api/home"); if (page === "home") renderHome(); }
+async function refresh() { H = await api("/app/api/home"); if (page === "home") renderList(); }
 
 $("#main").addEventListener("click", async e => {
   const t = e.target;
   if (t.closest("#drop")) return pickFiles();
   const pg = t.closest("[data-page]"); if (pg) { page = pg.dataset.page; return render(); }
-  const fp = t.closest("[data-fp]"); if (fp) { filter.profile = fp.dataset.fp; return renderHome(); }
-  const fs = t.closest("[data-fs]"); if (fs) { filter.status = fs.dataset.fs; return renderHome(); }
+  const fp = t.closest("[data-fp]"); if (fp) { filter.profile = fp.dataset.fp; shown = PAGE; return renderList(); }
+  const fs = t.closest("[data-fs]"); if (fs) { filter.status = fs.dataset.fs; shown = PAGE; return renderList(); }
+  if (t.closest("#pmore")) { shown += PAGE; return renderList(); }
+  if (t.closest("#parch")) { filter.archived = !filter.archived; filter.status = ""; shown = PAGE; return renderHome(); }
+  const ar = t.closest("[data-arch]"); if (ar) { e.stopPropagation();
+    try { await api("/app/api/archive", {id: ar.dataset.arch, archived: ar.dataset.v === "1"}); await refresh(); toast(ar.dataset.v === "1" ? "보관했습니다. 위의 '보관함'에서 다시 꺼낼 수 있습니다" : "목록으로 꺼냈습니다"); } catch (err) { toast(err.message); } return; }
   const rv = t.closest("[data-reveal]"); if (rv) { e.stopPropagation(); const j = await api("/app/api/reveal", {id: rv.dataset.reveal}); if (!j.ok) toast("폴더 위치: " + j.path, 6000); return; }
   if (t.closest("[data-status]")) return;
   const op = t.closest("[data-open]"); if (op) openProject(op.dataset.open);
 });
+$("#main").addEventListener("input", e => { if (e.target.id === "pq") { filter.q = e.target.value; shown = PAGE; renderList(); } });
 $("#main").addEventListener("change", async e => {
+  if (e.target.id === "psort") { filter.sort = e.target.value; return renderList(); }
   const s = e.target.closest("[data-status]"); if (!s) return;
   try { await api("/app/api/status", {id: s.dataset.status, status: s.value}); await refresh(); toast("상태를 바꿨습니다"); } catch (err) { toast(err.message); }
 });

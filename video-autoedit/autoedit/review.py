@@ -43,7 +43,7 @@ def _engine(e: dict | None) -> str:
 
 
 def review_html(*, name: str, version: int, platform: Platform, plan: EditPlan, card: Scorecard, info: dict,
-                creator: str, voices_used: list[dict], reference: str = "") -> str:
+                creator: str, voices_used: list[dict], reference: str = "", notes: str = "") -> str:
     cover = ""
     cp = Path(info.get("cover") or "")
     if cp.is_file():
@@ -82,6 +82,7 @@ li{{margin:4px 0}} label{{display:flex;gap:8px;align-items:flex-start;margin:6px
     </div>
   </div>
 </div>
+{f'<div class="card"><h2 style="margin-top:0">제작 시 편집 요청</h2><pre>{_esc(notes)}</pre></div>' if notes else ''}
 <div class="card"><h2 style="margin-top:0">수정 요청 방법</h2>
   <div>영상 시간과 함께 보내 주세요. 예) <b>0:12 자막 '되요'→'돼요'</b>, <b>0:20~0:24 컷 빼기</b>. 시간은 <b>v{version}</b> 기준입니다.</div></div>
 <div class="card"><h2 style="margin-top:0">컨펌 체크리스트</h2>

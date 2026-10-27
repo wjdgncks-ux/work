@@ -10,6 +10,7 @@ API
   POST /api/save {plan}                   plan.json 저장(자동 저장)
   POST /api/style {style}                 스타일 변경
   POST /api/replan {style}                AI 재편집(현재 편집을 새 기획으로 교체)
+  POST /api/brief {notes}                 편집 요청(참고사항) 저장 — AI 재편집·대본에 반영
   POST /api/reference {card_id} | {card}  레퍼런스 스타일 카드 바꾸기("" = 빼기) / 고친 카드 저장
   POST /api/autofill {plan}               정지 구간에 줌 강조 자동 채우기
   POST /api/transcript {index, sentences} 캡션(대사) 수정
@@ -548,6 +549,10 @@ def make_handler(source):
                 if path == "/api/style":
                     st.project.set_style(data["style"])
                     return self._json(st.state())
+                if path == "/api/brief":
+                    st.project.meta["brief"]["notes"] = str(data.get("notes") or "").strip()[:2000]
+                    st.project.save_meta()
+                    return self._json({"ok": True})
                 if path == "/api/reference":
                     st.set_reference(data)
                     return self._json(st.state())

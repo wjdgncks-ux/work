@@ -75,6 +75,10 @@ async function layout(page, where, selectors) {
     await page.click("#goBtn");
     check("링크는 허락 확인 체크 없이는 시작 안 됨", (await page.textContent("#toast")).includes("확인 체크"));
     await page.fill("#refLinks", "");
+    // 편집 요청
+    await page.fill("#notes", "30초 안으로");
+    await page.click('[data-chip="첫 장면은 결과·완성품부터"]');
+    check("편집 요청: 직접 입력 + 빠른 문구 추가", (await page.inputValue("#notes")) === "30초 안으로\n첫 장면은 결과·완성품부터");
     await layout(page, "새 프로젝트 창(레퍼런스)", ["#goBtn", "#refAdd"]);
     await shot(page, "02-new-project");
     s = t0();
@@ -114,6 +118,12 @@ async function layout(page, where, selectors) {
     check("스타일 카드 저장(프로젝트·보관함)", true);
     await shot(page, "03d-style");
     await page.click('#rtabs [data-rt="proj"]');
+    check("편집기: 새 프로젝트에서 적은 편집 요청이 프로젝트에 저장됨", (await page.inputValue("[data-notes]")).includes("30초 안으로"));
+    await page.fill("[data-notes]", "30초 안으로\n가격 이야기는 빼기");
+    await page.dispatchEvent("[data-notes]", "change");
+    await page.waitForFunction(() => S.meta.brief.notes.includes("가격"), null, { timeout: 5000 });
+    check("편집기: 편집 요청 고쳐서 저장", true);
+    await page.evaluate(() => document.activeElement?.blur());  // 글자 입력칸에서 나와야 단축키가 동작
     await shot(page, "03-editor");
 
     // 4) CapCut 조작: 분할·왼쪽 삭제·되돌리기
@@ -216,6 +226,21 @@ async function layout(page, where, selectors) {
     check("홈 카드: 상태 '수정 요청'", card.st === "수정 요청", card.st);
     check("홈 카드: 버전 v1·표지 이미지", card.ver === "v1" && card.cover.includes("cover"), JSON.stringify(card));
     await shot(page, "06-home-after");
+    // 프로젝트 목록: 찾기·보관
+    await page.fill("#pq", "없는이름xyz");
+    check("목록 찾기: 맞는 게 없으면 안내", (await page.textContent("#plist")).includes("조건에 맞는 프로젝트가 없습니다"));
+    await page.fill("#pq", "가격");
+    check("목록 찾기: 편집 요청 내용으로도 찾음", (await page.$$("#plist .pc")).length === 1);
+    await page.fill("#pq", "");
+    await page.click("#plist [data-arch]");
+    await page.waitForFunction(() => !document.querySelector("#plist .pc"), null, { timeout: 5000 });
+    await page.click("#parch");
+    check("보관: 목록에서 숨고 보관함에 있음", (await page.$$("#plist .pc")).length === 1 && (await page.textContent("#plist [data-arch]")).includes("꺼내기"));
+    await page.click("#plist [data-arch]");
+    await page.click("#parch");
+    await page.waitForSelector("#plist .pc", { timeout: 5000 });
+    check("보관함에서 꺼내면 목록으로 돌아옴", (await page.$$("#plist .pc")).length === 1);
+    await layout(page, "프로젝트 목록 도구", ["#pq", "#psort", "#parch"]);
 
     // 12) 설정·점검
     await page.click('#side [data-page="settings"]');

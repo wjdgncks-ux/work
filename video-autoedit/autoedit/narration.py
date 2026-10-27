@@ -88,6 +88,7 @@ def draft_script(plan: EditPlan, timeline: list[Piece], analyses: list[Analysis]
             "첫 줄은 0~3초 안에 시작해 스크롤을 멈추게 한다. 마지막 줄은 CTA로 끝낸다",
         ],
         "user_request": instruction,
+        "editor_notes": brief.notes,
     }
     if brief.reference and brief.reference.analysis:
         a = brief.reference.analysis
