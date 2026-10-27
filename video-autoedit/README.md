@@ -21,7 +21,7 @@
 
 | | Windows | Mac |
 |---|---|---|
-| 1. 준비 | python.org 목록에서 **Python 3.13** 설치(맨 위 최신 버전 버튼은 안 됨 — 3.14 이상은 음성 인식 구성요소 미지원) | brew.sh에서 Homebrew 설치 |
+| 1. 준비 | 할 일 없음 — 설치 스크립트가 Python 3.13을 자동 설치(이 사용자 전용). 직접 설치한다면 3.13(3.14 이상은 음성 인식 구성요소 미지원) | brew.sh에서 Homebrew 설치 |
 | 2. 설치(처음 한 번) | `install-windows.bat` 더블클릭 (ffmpeg를 프로그램 폴더 `tools\ffmpeg`에 자동으로 받음, 약 200MB) | `install-mac.command` 더블클릭(처음엔 우클릭 → 열기) |
 | 3. 실행 | `start-windows.bat` 더블클릭 → 바탕화면 바로가기 권장 | `start-mac.command` 더블클릭 |
 | 4. AI 음성(선택) | [VoiceStudio 내려받기](https://github.com/debpalash/VoiceStudio/releases/latest)(`.exe`) → 실행 → '모델'에서 **VoxCPM2** 설치·라이선스 수락 | 같은 곳에서 `.dmg`(Apple Silicon만 가능, Intel Mac 불가) |
