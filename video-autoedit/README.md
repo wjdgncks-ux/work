@@ -21,7 +21,7 @@
 
 | | Windows | Mac |
 |---|---|---|
-| 1. 준비 | python.org에서 Python 설치(첫 화면 **Add python.exe to PATH** 체크) | brew.sh에서 Homebrew 설치 |
+| 1. 준비 | python.org 목록에서 **Python 3.13** 설치(맨 위 최신 버전 버튼은 안 됨 — 3.14 이상은 음성 인식 구성요소 미지원) | brew.sh에서 Homebrew 설치 |
 | 2. 설치(처음 한 번) | `install-windows.bat` 더블클릭 (ffmpeg를 프로그램 폴더 `tools\ffmpeg`에 자동으로 받음, 약 200MB) | `install-mac.command` 더블클릭(처음엔 우클릭 → 열기) |
 | 3. 실행 | `start-windows.bat` 더블클릭 → 바탕화면 바로가기 권장 | `start-mac.command` 더블클릭 |
 | 4. AI 음성(선택) | [VoiceStudio 내려받기](https://github.com/debpalash/VoiceStudio/releases/latest)(`.exe`) → 실행 → '모델'에서 **VoxCPM2** 설치·라이선스 수락 | 같은 곳에서 `.dmg`(Apple Silicon만 가능, Intel Mac 불가) |
@@ -269,6 +269,7 @@ cd tests/e2e && npm install && cd ../.. && bash tests/e2e/run.sh   # 사용성 E
 | 이름에 '가 있으면 홈 카드 표지·자료 미리보기 안 보임 | 혼란 | CSS url 인코딩 |
 | 윈도우에 없는 글꼴 이름이 기본값 | 자막 글자 깨짐(□) | 글꼴 'auto' → OS 기본 한글 글꼴 |
 | 회전 정보가 있는 아이폰 영상 / 소리 없는 영상 / 3초 영상 | 잘못된 세로 변환·실패 우려 | 테스트로 정상 동작 확인 |
+| python.org 맨 위 버튼으로 받은 최신 Python(3.15)에서 음성 인식 구성요소(onnxruntime) 설치 실패 | 설치 불가 | 설치 스크립트가 3.11~3.13을 골라 쓰고, 맞지 않는 설치 폴더는 다시 만듦, 없으면 정확한 안내 |
 | winget이 없는 Windows에서 ffmpeg 설치 실패 + 실패해도 '설치 끝났으면 다시 실행' 안내(무한 반복) | 설치 불가 | winget 없이 github에서 직접 받아 `tools\ffmpeg`에 두기, 실패 시 정확한 안내 |
 | 배치 파일 if 블록 안 문구의 괄호 때문에 줄이 잘려 실행됨 | 설치 오작동 | 블록 안 문구에서 괄호 제거 |
 | 자막에 "음 어" 같은 군말이 그대로 남음 | 첫 3초를 군말로 낭비 | 군말 자동 제거(자막·컷) |

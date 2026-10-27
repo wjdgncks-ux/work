@@ -5,19 +5,25 @@ echo ================================================
 echo   숏폼 편집기 설치 - 처음 한 번만
 echo ================================================
 rem 주의: if 블록 괄호 안의 echo 문구에 괄호를 쓰지 않는다(블록이 거기서 끝나 버림).
-rem 'where python'은 Microsoft Store 바로가기(설치 안 된 가짜 python)도 찾으므로, 실제로 실행되는지로 확인한다.
-rem python.org 설치본에 딸린 py 실행기를 먼저 쓴다(PATH 체크를 빠뜨려도 동작).
+rem Python은 3.11~3.13만 쓴다. python.org 맨 위 버튼은 최신 버전(3.14 이상)을 주는데,
+rem 음성 인식 구성요소(onnxruntime)가 아직 최신 버전용으로 나오지 않아 설치가 실패한다.
+rem 'where python'은 Microsoft Store 바로가기(설치 안 된 가짜 python)도 찾으므로 실제로 실행해서 확인한다.
+set "OKPY=import sys; sys.exit(0 if (3,11)<=sys.version_info[:2]<=(3,13) else 1)"
 set "PY="
-py -3 --version >nul 2>nul && set "PY=py -3"
-if not defined PY (python --version >nul 2>nul && set "PY=python")
+for %%V in (3.13 3.12 3.11) do (if not defined PY (py -%%V -c "%OKPY%" >nul 2>nul && set "PY=py -%%V"))
+if not defined PY (python -c "%OKPY%" >nul 2>nul && set "PY=python")
 if not defined PY (
-  echo [!] Python이 없습니다.
-  echo     https://www.python.org/downloads/ 에서 설치하고
-  echo     설치 첫 화면의 "Add python.exe to PATH" 를 꼭 체크하세요.
+  echo [!] Python 3.13이 필요합니다.
+  echo     Python이 없거나, 3.14 이상 최신 버전만 있어서 음성 인식 구성요소를 설치할 수 없습니다.
+  echo     https://www.python.org/downloads/windows/ 목록에서 "Python 3.13.x" 의 "Windows installer 64-bit" 를 받아 설치하세요.
+  echo     맨 위 노란 최신 버전 버튼은 누르지 마세요. 지금 있는 Python은 지우지 않아도 됩니다.
   echo     설치 후 이 파일을 다시 더블클릭하세요.
   pause
   exit /b 1
 )
+echo 사용할 Python: %PY%
+rem 예전에 맞지 않는 Python으로 만든 설치 폴더가 있으면 지우고 다시 만든다.
+if exist ".venv\Scripts\python.exe" (".venv\Scripts\python.exe" -c "%OKPY%" >nul 2>nul || (echo 이전 설치의 Python 버전이 맞지 않아 다시 만듭니다. & rmdir /s /q .venv))
 
 rem ffmpeg: winget이 없는 PC가 많아 프로그램 폴더의 tools\ffmpeg 에 직접 받아 둔다(시스템 설정은 건드리지 않음).
 set "APPDIR=%~dp0"

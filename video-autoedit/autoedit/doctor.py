@@ -82,8 +82,8 @@ def _voice_check() -> Check:
 def run_checks(workspace: Path | None = None) -> list[Check]:
     checks: list[Check] = []
     py = sys.version_info
-    checks.append(Check("python", "Python 3.11 이상", py >= (3, 11), True, f"{py.major}.{py.minor}.{py.micro}",
-                        "python.org에서 3.11 이상 설치"))
+    checks.append(Check("python", "Python 3.11~3.13", (3, 11) <= py[:2] <= (3, 13), True, f"{py.major}.{py.minor}.{py.micro}",
+                        "Python 3.13 설치 후 설치 스크립트 다시 실행(3.14 이상은 음성 인식 구성요소 미지원)"))
     has, ver, libass = _ffmpeg_info()
     install = ("install-windows.bat 다시 실행(ffmpeg를 프로그램 폴더에 자동으로 받음)" if sys.platform == "win32"
                else "brew install ffmpeg" if sys.platform == "darwin" else "sudo apt install ffmpeg")
