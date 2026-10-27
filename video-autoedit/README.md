@@ -22,7 +22,7 @@
 | | Windows | Mac |
 |---|---|---|
 | 1. 준비 | python.org에서 Python 설치(첫 화면 **Add python.exe to PATH** 체크) | brew.sh에서 Homebrew 설치 |
-| 2. 설치(처음 한 번) | `install-windows.bat` 더블클릭 (ffmpeg 자동 설치 포함) | `install-mac.command` 더블클릭(처음엔 우클릭 → 열기) |
+| 2. 설치(처음 한 번) | `install-windows.bat` 더블클릭 (ffmpeg를 프로그램 폴더 `tools\ffmpeg`에 자동으로 받음, 약 200MB) | `install-mac.command` 더블클릭(처음엔 우클릭 → 열기) |
 | 3. 실행 | `start-windows.bat` 더블클릭 → 바탕화면 바로가기 권장 | `start-mac.command` 더블클릭 |
 | 4. AI 음성(선택) | [VoiceStudio 내려받기](https://github.com/debpalash/VoiceStudio/releases/latest)(`.exe`) → 실행 → '모델'에서 **VoxCPM2** 설치·라이선스 수락 | 같은 곳에서 `.dmg`(Apple Silicon만 가능, Intel Mac 불가) |
 
@@ -269,6 +269,8 @@ cd tests/e2e && npm install && cd ../.. && bash tests/e2e/run.sh   # 사용성 E
 | 이름에 '가 있으면 홈 카드 표지·자료 미리보기 안 보임 | 혼란 | CSS url 인코딩 |
 | 윈도우에 없는 글꼴 이름이 기본값 | 자막 글자 깨짐(□) | 글꼴 'auto' → OS 기본 한글 글꼴 |
 | 회전 정보가 있는 아이폰 영상 / 소리 없는 영상 / 3초 영상 | 잘못된 세로 변환·실패 우려 | 테스트로 정상 동작 확인 |
+| winget이 없는 Windows에서 ffmpeg 설치 실패 + 실패해도 '설치 끝났으면 다시 실행' 안내(무한 반복) | 설치 불가 | winget 없이 github에서 직접 받아 `tools\ffmpeg`에 두기, 실패 시 정확한 안내 |
+| 배치 파일 if 블록 안 문구의 괄호 때문에 줄이 잘려 실행됨 | 설치 오작동 | 블록 안 문구에서 괄호 제거 |
 | 자막에 "음 어" 같은 군말이 그대로 남음 | 첫 3초를 군말로 낭비 | 군말 자동 제거(자막·컷) |
 | 같은 구도 점프컷이 많은 릴스는 컷이 감지되지 않아 '평균 컷 32초'처럼 잘못 잼 | 레퍼런스보다 느린 편집 | 민감한 컷 감지 + 못 재면 컷 길이 미반영·경고 |
 | 노트북 화면에서 오른쪽 패널 입력칸·'AI 진단' 탭이 잘리고 저장 버튼이 화면 아래 | 기능을 못 찾음 | 패널 폭 고정·탭 압축·저장 버튼 상단 고정, E2E 잘림 검사 |

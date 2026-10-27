@@ -6,3 +6,4 @@ assets/*/*
 !assets/*/.gitkeep
 e2e-report/
 tests/e2e/node_modules/
+tools/

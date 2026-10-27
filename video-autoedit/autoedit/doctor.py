@@ -85,7 +85,7 @@ def run_checks(workspace: Path | None = None) -> list[Check]:
     checks.append(Check("python", "Python 3.11 이상", py >= (3, 11), True, f"{py.major}.{py.minor}.{py.micro}",
                         "python.org에서 3.11 이상 설치"))
     has, ver, libass = _ffmpeg_info()
-    install = ("winget install -e --id Gyan.FFmpeg" if sys.platform == "win32"
+    install = ("install-windows.bat 다시 실행(ffmpeg를 프로그램 폴더에 자동으로 받음)" if sys.platform == "win32"
                else "brew install ffmpeg" if sys.platform == "darwin" else "sudo apt install ffmpeg")
     checks.append(Check("ffmpeg", "ffmpeg(영상 처리)", has, True, ver or "없음",
                         f"설치: {install} — 설치 후 프로그램을 다시 실행"))
