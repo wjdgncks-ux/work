@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
 from pathlib import Path
@@ -122,8 +123,25 @@ def slim(ws: Path, pdir: Path, *, originals: bool = False) -> int:
     prev = meta.get("slimmed") or {}
     meta["slimmed"] = {"at": time.strftime("%Y-%m-%d %H:%M"), "freed": freed + int(prev.get("freed", 0)),
                        "originals_removed": bool(prev.get("originals_removed")) or bool(removed_src)}
-    (pdir / "project.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    pj = pdir / "project.json"
+    st = pj.stat()
+    pj.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.utime(pj, ns=(st.st_atime_ns, st.st_mtime_ns))  # 정리는 편집이 아니다: '최근 수정'·자동 정리 기준 시각을 바꾸지 않음
     return freed
+
+
+def auto_candidates(projects: list[dict], *, days: float, now: float, skip: set[str] = frozenset()) -> list[dict]:
+    """자동 정리 대상: '업로드 완료'이거나 보관한 프로젝트 중 마지막 수정 뒤 days일이 지난 것.
+    원본은 지우지 않으므로(다시 편집 가능) 대상이 틀려도 잃는 것은 다시 만들 수 있는 파일뿐이다."""
+    out = []
+    for p in projects:
+        if p["id"] in skip or p.get("originals_removed"):
+            continue
+        if not (p.get("status") == "업로드 완료" or p.get("archived")):
+            continue
+        if now - p["updated"] >= days * 86400:
+            out.append(p)
+    return out
 
 
 def delete(ws: Path, pdir: Path, *, originals: bool = True) -> int:

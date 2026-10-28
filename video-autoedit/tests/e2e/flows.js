@@ -294,6 +294,38 @@ async function layout(page, where, selectors) {
     await page.waitForFunction(n => document.querySelectorAll("#plist .pc").length === n - 1, nBefore, { timeout: 10000 });
     check("프로젝트 삭제: 목록에서 사라짐", true, `${nBefore}→${nBefore - 1}`);
     check("프로젝트 삭제: 완료 안내", (await page.textContent("#toast")).includes("삭제했습니다"));
+
+    // 15) 구글 드라이브 폴더 링크로 가져오기(가짜 드라이브) — 비공개 링크는 이유를 보여 줌
+    await page.click("#gdStart");
+    await page.waitForSelector("#gdUrl");
+    check("드라이브: 시작 화면 버튼으로 새 프로젝트 창이 열리고 링크 칸에 바로 입력", await page.evaluate(() => document.activeElement?.id === "gdUrl"));
+    await page.fill("#gdUrl", "https://drive.google.com/drive/folders/1privateFolder123?usp=sharing");
+    await page.click("#gdGo");
+    await page.waitForFunction(() => /링크가 있는 모든 사용자/.test(document.querySelector("#files")?.textContent || ""), null, { timeout: 15000 });
+    check("드라이브: 비공개 링크면 공유 설정 바꾸라는 안내", true);
+    await page.click("#files [data-rm]");
+    await page.fill("#gdUrl", "https://drive.google.com/drive/folders/1E2eFolderAbcdef?usp=sharing");
+    await page.press("#gdUrl", "Enter");
+    await page.waitForFunction(() => /20260519_221634\.mp4/.test(document.querySelector("#files")?.textContent || "") && !document.querySelector("#goBtn").disabled, null, { timeout: 20000 });
+    const ftext = await page.textContent("#files");
+    check("드라이브: 폴더 안 영상만 받아 목록에 길이·크기 표시(문서는 건너뜀)", /초 · \d+x\d+/.test(ftext) && !/메모/.test(ftext), ftext.slice(0, 80));
+    check("드라이브: 건너뛴 파일 수 안내", (await page.textContent("#toast")).includes("1개는 건너뜀"));
+    await layout(page, "드라이브 가져오기", ["#gdUrl", "#gdGo", "#goBtn"]);
+    await shot(page, "10-drive");
+    await page.click("#mClose");
+
+    // 16) 설정: 끝난 프로젝트 자동 정리
+    await page.click('#side [data-page="settings"]');
+    await page.waitForSelector("#sAuto");
+    check("설정: 자동 정리 기본값 7일", (await page.inputValue("#sAuto")) === "7");
+    await page.selectOption("#sAuto", "3");
+    await page.click("#sSave");
+    await page.waitForTimeout(500);
+    check("설정: 자동 정리 기간 저장", (await page.inputValue("#sAuto")) === "3");
+    await page.click("#sAutoNow");
+    await page.waitForFunction(() => /정리할 끝난 프로젝트가 없습니다|확보/.test(document.querySelector("#toast")?.textContent || ""), null, { timeout: 10000 });
+    check("설정: '지금 정리' 실행 결과 안내", true);
+    await layout(page, "설정 자동 정리", ["#sAuto", "#sAutoNow"]);
   } catch (e) {
     check("흐름 중단 없이 끝까지 진행", false, e.message.split("\n")[0]); if (process.env.E2E_DEBUG) console.log(e.message);
     await shot(page, "zz-failure").catch(() => {});

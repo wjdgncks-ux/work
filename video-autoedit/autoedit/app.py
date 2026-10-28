@@ -24,7 +24,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import doctor, housekeeping, reference, settings, updater, voice
+from . import doctor, gdrive, housekeeping, reference, settings, updater, voice
 from .editor import STATIC, EditorState, _whisper_available, make_handler
 from .media import FFmpegError, probe
 from .osutil import reveal
@@ -38,6 +38,8 @@ VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
 STYLE_DESC = {"explainer": "정보·노하우. 질문·숫자로 후킹, 짧은 공백까지 컷",
               "funny": "웃긴 장면. 리액션 미리보기, 웃음 타이밍 유지",
               "demo": "제품 시연·리뷰. 결과 먼저, 작업 구간 빨리감기"}
+AUTO_SLIM_DAYS = 7          # 기본: '업로드 완료'·보관 뒤 7일이 지나면 중간 파일 자동 정리(-1 = 끔)
+AUTO_SLIM_EVERY = 6 * 3600  # 프로그램이 켜져 있으면 6시간마다 다시 확인
 
 
 def supervised() -> bool:
@@ -73,6 +75,9 @@ class AppState:
         self.lock = threading.Lock()
         self._checks: list[dict] | None = None
         self._plist: dict[str, tuple[float, dict]] = {}  # project.json 경로 → (수정 시각, 카드 정보): 프로젝트가 많아도 빠르게
+        self.drive_job: dict = {"state": "idle"}
+        self._drive_cancel: threading.Event | None = None
+        self.auto_result: dict | None = None
 
     # ---------- 경로 ----------
     @property
@@ -172,7 +177,9 @@ class AppState:
                          "voice_models": [{"id": k, **v} for k, v in voice.VS_ENGINES.items()],
                          "anthropic": bool(settings.get_key("anthropic")),
                          "whisper_model": cfg.get("whisper_model", "small"), "whisper_installed": _whisper_available(),
-                         "user_name": cfg.get("user_name", ""), "version": updater.current()["version"]},
+                         "user_name": cfg.get("user_name", ""), "version": updater.current()["version"],
+                         "auto_slim_days": self.auto_slim_days()},
+            "auto_slim": self.auto_result,
             "style_cards": [{"id": c.id, "name": c.name, "samples": c.samples, "analyzed": bool(c.analysis)}
                             for c in reference.list_cards()],
             "channel_styles": cfg.get("channel_styles") or {},
@@ -290,6 +297,11 @@ class AppState:
         if ws:
             Path(ws).expanduser().mkdir(parents=True, exist_ok=True)
         settings.put(whisper_model=d.get("whisper_model"), user_name=d.get("user_name"), workspace=ws or None)
+        if d.get("auto_slim_days") is not None:
+            days = float(d["auto_slim_days"])
+            if days not in (-1, 0, 1, 3, 7, 14, 30):
+                raise ValueError("자동 정리 기간이 올바르지 않습니다")
+            settings.put(auto_slim_days=days)
         self._checks = None
 
     # ---------- 업데이트 ----------
@@ -362,6 +374,7 @@ class AppState:
         pdir = self.project_dir(pid)
         self._guard(pdir)
         freed = housekeeping.slim(self.workspace, pdir, originals=originals)
+        self._plist = {}  # 정리는 수정 시각을 바꾸지 않으므로 목록 캐시를 직접 비운다
         if originals and self.editor and self.editor.project.pdir.resolve() == pdir.resolve():
             self.editor = None
         return {"freed": freed, "freed_text": housekeeping.human(freed)}
@@ -373,6 +386,89 @@ class AppState:
             self.editor = None
         freed = housekeeping.delete(self.workspace, pdir, originals=originals)
         return {"freed": freed, "freed_text": housekeeping.human(freed)}
+
+    def auto_slim_days(self) -> float:
+        v = settings.get("auto_slim_days")
+        return AUTO_SLIM_DAYS if v is None else float(v)
+
+    def auto_slim(self, now: float | None = None) -> dict | None:
+        """끝난 프로젝트('업로드 완료'·보관)의 중간 파일을 자동 정리한다. 원본은 지우지 않는다(다시 편집 가능)."""
+        days = self.auto_slim_days()
+        if days < 0 or self.job.get("state") == "running":
+            return None
+        if self.editor and self.editor.job.get("state") == "running":
+            return None
+        skip = set()
+        if self.editor and self.workspace in self.editor.project.pdir.parents:
+            skip.add(self.editor.project.pdir.relative_to(self.workspace).as_posix())  # 편집기에 열린 프로젝트는 건드리지 않음
+        freed, names = 0, []
+        for p in housekeeping.auto_candidates(self.projects(), days=days, now=now or time.time(), skip=skip):
+            try:
+                pdir = self.project_dir(p["id"])
+                if housekeeping.usage(self.workspace, pdir)["work"] <= 0:
+                    continue
+                freed += self.slim(p["id"], False)["freed"]
+                names.append(p["name"])
+            except (OSError, ValueError):
+                continue
+        if names:
+            self.auto_result = {"at": time.strftime("%m-%d %H:%M"), "projects": len(names), "names": names[:5],
+                                "freed": freed, "freed_text": housekeeping.human(freed)}
+        return self.auto_result
+
+    def _auto_slim_soon(self) -> None:
+        if self.auto_slim_days() == 0:
+            threading.Thread(target=self.auto_slim, daemon=True).start()
+
+    # ---------- 구글 드라이브 ----------
+    def start_drive(self, url: str) -> dict:
+        with self.lock:
+            if self.drive_job.get("state") == "running":
+                raise ValueError("구글 드라이브에서 받는 중입니다. 끝난 뒤에 다시 넣으세요")
+            gdrive.parse_link(url)  # 형식이 틀리면 바로 알려 준다
+            cancel = self._drive_cancel = threading.Event()
+            job = self.drive_job = {"state": "running", "step": "링크 안의 영상을 찾는 중", "items": [], "skipped": 0,
+                                    "progress": 0.0}
+
+        def work():
+            try:
+                items, job["skipped"] = gdrive.list_videos(url)
+                job["items"] = [{"gid": it.id, "name": it.name, "progress": 0.0, "done": False, "error": ""} for it in items]
+                for k, (it, row) in enumerate(zip(items, job["items"])):
+                    if cancel.is_set():
+                        row["error"] = "취소함"
+                        continue
+                    job["step"] = f"{k + 1}/{len(items)} 받는 중"
+
+                    def prog(f, row=row, k=k):
+                        row["progress"] = round(f, 3)
+                        job["progress"] = round((k + f) / len(items), 3)
+                    try:
+                        path, reused = gdrive.fetch(it, self.originals, progress=prog, cancel=cancel)
+                        try:
+                            info = probe(path)
+                        except Exception as exc:
+                            raise ValueError(probe_reason(exc)) from exc
+                        row.update(done=True, progress=1.0, id=path.name, reused=reused,
+                                   info=f"{round(info.duration, 1)}초 · {info.display_size[0]}x{info.display_size[1]}"
+                                        + (" · 이미 받아 둔 파일" if reused else ""))
+                    except (gdrive.DriveError, ValueError) as exc:
+                        row["error"] = str(exc)
+                ok = sum(r["done"] for r in job["items"])
+                job.update(state="done" if ok else "error", progress=1.0, step=f"{ok}개 받음",
+                           error="" if ok else (job["items"][0]["error"] if job["items"] else "받은 영상이 없습니다"))
+            except gdrive.DriveError as exc:
+                job.update(state="error", error=str(exc))
+            except Exception as exc:  # 예상 못 한 오류도 화면에 보여 준다
+                job.update(state="error", error=f"구글 드라이브 가져오기 오류: {exc}", trace=traceback.format_exc()[-1500:])
+
+        threading.Thread(target=work, daemon=True).start()
+        return job
+
+    def cancel_drive(self) -> dict:
+        if self._drive_cancel:
+            self._drive_cancel.set()
+        return self.drive_job
 
     def slim_archived(self, originals: bool) -> dict:
         freed, n = 0, 0
@@ -388,6 +484,8 @@ class AppState:
         meta = json.loads(pj.read_text(encoding="utf-8"))
         meta["archived"] = bool(archived)
         pj.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        if archived:
+            self._auto_slim_soon()
 
     def set_status(self, pid: str, status: str) -> None:
         if status not in REVIEW_STATES:
@@ -396,6 +494,8 @@ class AppState:
         meta = json.loads(pj.read_text(encoding="utf-8"))
         meta.setdefault("review", {"status": "편집 중", "memo": "", "done": []})["status"] = status
         pj.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        if status == "업로드 완료":
+            self._auto_slim_soon()
 
 
 def make_app_handler(app: AppState):
@@ -424,6 +524,8 @@ def make_app_handler(app: AppState):
                     return self._json(app.job)
                 if path == "/app/api/update":
                     return self._json(app.update_state())
+                if path == "/app/api/drive/job":
+                    return self._json(app.drive_job)
                 if path == "/app/api/project/usage":
                     return self._json(app.usage(q["id"][0]))
                 if path == "/app/media/cover":
@@ -460,6 +562,12 @@ def make_app_handler(app: AppState):
                     return self._json(app.slim(data["id"], bool(data.get("originals"))))
                 if path == "/app/api/project/delete":
                     return self._json(app.delete(data["id"], bool(data.get("originals", True))))
+                if path == "/app/api/drive/start":
+                    return self._json(app.start_drive(data.get("url", "")))
+                if path == "/app/api/drive/cancel":
+                    return self._json(app.cancel_drive())
+                if path == "/app/api/autoslim":
+                    return self._json(app.auto_slim() or {"projects": 0})
                 if path == "/app/api/archive/slim":
                     return self._json(app.slim_archived(bool(data.get("originals"))))
                 if path == "/app/api/archive":
@@ -518,6 +626,16 @@ def serve_app(port: int = 8765, open_browser: bool = True, app: AppState | None 
     print(f"숏폼 편집기: {url}\n작업 폴더: {app.workspace}\n이 창을 닫으면 프로그램이 종료됩니다.", flush=True)
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+
+    def housekeeping_loop():  # 켤 때 한 번(1분 뒤), 이후 6시간마다 끝난 프로젝트 자동 정리
+        time.sleep(60)
+        while True:
+            try:
+                app.auto_slim()
+            except Exception:  # 정리 실패가 앱을 멈추게 하지 않는다
+                traceback.print_exc()
+            time.sleep(AUTO_SLIM_EVERY)
+    threading.Thread(target=housekeeping_loop, daemon=True).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

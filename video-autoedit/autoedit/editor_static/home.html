@@ -82,6 +82,9 @@ button.danger:hover{background:#5c2222}
 .opt:hover{border-color:#55555d}.opt.on{border-color:var(--accent);background:#14393b66}
 .opt b{display:block}.opt small{color:var(--muted)}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+#sSave{position:sticky;bottom:16px;z-index:2;box-shadow:0 4px 18px #000a}
+.gd{display:flex;gap:8px;margin-top:10px}.gd input{flex:1;min-width:0}
+#gdHome{margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .refbox{border:1px solid var(--line2);border-radius:10px;padding:10px 12px;margin-top:8px;display:flex;flex-direction:column;gap:8px}
 .refbox textarea{width:100%;min-height:54px;resize:vertical;background:#121214;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;color:var(--text);font:inherit}
 .warnline{color:#f0b84a;font-size:12px}
@@ -204,7 +207,9 @@ function renderHome() {
     ${updBanner()}
     <div id="drop"><div class="plus">+</div><div><b>새 프로젝트</b><div class="muted">촬영한 영상을 여기에 끌어다 놓거나 눌러서 고르세요. 여러 개도 됩니다.</div>
       <div class="muted small">AI가 컷·후킹·자막·효과음을 먼저 편집해 두고, 편집기에서 다듬습니다.</div></div></div>
+    <div id="gdHome"><button id="gdStart">구글 드라이브 링크로 가져오기</button><span class="muted small">폴더 링크를 넣으면 안의 영상을 모두 받습니다</span></div>
     <h2>프로젝트 <span class="muted small" id="pcount"></span></h2>
+    ${H.auto_slim ? `<div class="muted small" style="margin:-4px 0 8px">자동 정리(${esc(H.auto_slim.at)}): 끝난 프로젝트 ${H.auto_slim.projects}개의 중간 파일 · ${esc(H.auto_slim.freed_text)} 확보</div>` : ""}
     <div class="ptools"><input id="pq" type="search" placeholder="이름·주제·편집 요청으로 찾기" value="${esc(filter.q)}">
       <select id="psort"><option value="updated" ${filter.sort === "updated" ? "selected" : ""}>최근 수정순</option><option value="old" ${filter.sort === "old" ? "selected" : ""}>오래된순</option><option value="name" ${filter.sort === "name" ? "selected" : ""}>이름순</option></select>
       <button id="parch" class="${filter.archived ? "on" : ""}">${filter.archived ? "보관함 닫기" : "보관함"} <span class="muted small">${H.projects.filter(p => p.archived).length}</span></button>
@@ -296,9 +301,43 @@ $("#filePick").onchange = e => startNew([...e.target.files]);
 function startNew(files) {
   files = files.filter(f => /^video\//.test(f.type) || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(f.name));
   if (!files.length) return toast("영상 파일을 골라 주세요");
-  if (!cfg) { const p = H.profiles[0]; cfg = {profile: p?.key || "", style: p?.style || "explainer", platforms: (p?.platforms || "reels").split(","), mode: "each", topic: "", sponsored: false, captions: H.settings.whisper_installed, auto_render: false}; refDefaults(); }
+  ensureCfg();
   files.forEach(f => uploads.push({file: f, name: f.name, progress: 0, done: false, error: ""}));
   openNew(); files.forEach(f => upload(uploads.find(u => u.file === f)));
+}
+function ensureCfg() {
+  if (!cfg) { const p = H.profiles[0]; cfg = {profile: p?.key || "", style: p?.style || "explainer", platforms: (p?.platforms || "reels").split(","), mode: "each", topic: "", sponsored: false, captions: H.settings.whisper_installed, auto_render: false}; refDefaults(); }
+}
+/* 구글 드라이브 링크로 가져오기: 서버가 받아 원본영상에 두고, 진행 상황을 목록에 보여 준다 */
+let drivePoll = null, driveRemoved = new Set();
+async function startDrive(url) {
+  if (!url) return toast("구글 드라이브 공유 링크를 붙여 넣으세요");
+  try { await api("/app/api/drive/start", {url}); } catch (e) { return toast(e.message, 7000); }
+  uploads.push({gph: true, name: "구글 드라이브 · 링크 안의 영상을 찾는 중…", progress: 0, done: false, error: ""});
+  if ($("#gdUrl")) $("#gdUrl").value = "";
+  drawFiles(); pollDrive();
+}
+function pollDrive() {
+  clearTimeout(drivePoll);
+  drivePoll = setTimeout(async () => {
+    let j; try { j = await api("/app/api/drive/job"); } catch (e) { return pollDrive(); }
+    const ph = uploads.find(u => u.gph);
+    for (const it of j.items || []) {
+      if (driveRemoved.has(it.gid)) continue;
+      let u = uploads.find(x => x.gid === it.gid);
+      if (!u) { u = {gid: it.gid}; uploads.push(u); }
+      Object.assign(u, {name: it.name, progress: it.progress, done: it.done, error: it.error, id: it.id, info: it.info});
+    }
+    if (ph && (j.items || []).length) uploads.splice(uploads.indexOf(ph), 1);
+    if (j.state === "running") { if (ph && !(j.items || []).length) ph.name = "구글 드라이브 · " + (j.step || "확인 중…"); drawFiles(); return pollDrive(); }
+    drivePoll = null;
+    const ph2 = uploads.find(u => u.gph);
+    if (ph2) { ph2.error = j.error || "받지 못했습니다"; ph2.name = "구글 드라이브"; }
+    drawFiles();
+    const ok = (j.items || []).filter(i => i.done).length;
+    if (ok) toast(`구글 드라이브에서 영상 ${ok}개를 가져왔습니다${j.skipped ? ` · 영상이 아닌 파일 ${j.skipped}개는 건너뜀` : ""}`, 5000);
+    else if (j.error) toast(j.error, 9000);
+  }, 800);
 }
 function upload(u, kind = "video") {
   const x = new XMLHttpRequest();
@@ -323,6 +362,8 @@ function openNew() {
   const prof = H.profiles.find(p => p.key === cfg.profile);
   $("#mbox").innerHTML = `<h3><span>새 프로젝트</span><button class="ghost" id="mClose">✕</button></h3>
     <div class="sec"><div class="t">영상</div><div class="files" id="files"></div><button id="addMore">+ 영상 더 넣기</button>
+      <div class="gd"><input id="gdUrl" placeholder="구글 드라이브 폴더·파일 공유 링크 붙여넣기"><button id="gdGo">드라이브에서 가져오기</button></div>
+      <div class="muted small" style="margin-top:4px">공유 설정이 '링크가 있는 모든 사용자'여야 받을 수 있습니다. 폴더면 안의 영상만 모두 받습니다.</div>
       <div class="row" id="modeRow" style="margin-top:8px"><label class="ck"><input type="radio" name="mode" value="each" ${cfg.mode === "each" ? "checked" : ""}> 영상마다 따로 편집</label>
         <label class="ck"><input type="radio" name="mode" value="merge" ${cfg.mode === "merge" ? "checked" : ""}> 여러 영상을 한 편으로</label></div></div>
     <div class="sec"><div class="t">어느 채널에 올리나요?</div><div class="opts">
@@ -357,7 +398,8 @@ $("#modal").addEventListener("click", async e => {
   if (t.id === "modal" && H.job.state !== "running") return closeModal();
   if (t.closest("#mClose") || t.id === "mCancel") return closeModal();
   if (t.id === "addMore") return pickFiles();
-  const rm = t.closest("[data-rm]"); if (rm) { uploads.splice(+rm.dataset.rm, 1); return drawFiles(); }
+  if (t.id === "gdGo") return startDrive($("#gdUrl").value.trim());
+  const rm = t.closest("[data-rm]"); if (rm) { const u = uploads[+rm.dataset.rm]; if (u?.gid) driveRemoved.add(u.gid); uploads.splice(+rm.dataset.rm, 1); return drawFiles(); }
   const pr = t.closest("[data-prof]");
   if (pr) { readCfg(); cfg.profile = pr.dataset.prof; const p = H.profiles.find(x => x.key === cfg.profile); if (p) { cfg.style = p.style || cfg.style; cfg.platforms = (p.platforms || "reels").split(","); }
     if (cfg.ref.mode === "default" || cfg.ref.mode === "none") cfg.ref.mode = chDefault() ? "default" : "none"; return openNew(); }
@@ -416,6 +458,7 @@ function slimLabel() {
 }
 const human = n => n < 1048576 ? `${Math.round(n / 1024)}KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)}MB` : `${(n / 1073741824).toFixed(1)}GB`;
 $("#modal").addEventListener("change", e => { if (e.target.id === "slimOrig") slimLabel(); });
+$("#modal").addEventListener("keydown", e => { if (e.target.id === "gdUrl" && e.key === "Enter") { e.preventDefault(); startDrive(e.target.value.trim()); } });
 $("#modal").addEventListener("click", async e => {
   const t = e.target; if (!managing || !mUsage) return;
   const id = managing, p = H.projects.find(x => x.id === id);
@@ -435,7 +478,10 @@ $("#modal").addEventListener("click", async e => {
     }
   } catch (err) { toast(err.message, 7000); } finally { busy(false); }
 });
-function closeModal() { managing = null; mUsage = null; $("#modal").classList.remove("on"); uploads = []; refUploads = []; }
+function closeModal() {
+  if (drivePoll) { clearTimeout(drivePoll); drivePoll = null; api("/app/api/drive/cancel", {}).catch(() => {}); }
+  managing = null; mUsage = null; $("#modal").classList.remove("on"); uploads = []; refUploads = []; driveRemoved = new Set();
+}
 async function showProgress() {
   $("#modal").classList.add("on");
   const j = H.job = await api("/app/api/job");
@@ -467,6 +513,7 @@ async function refresh() { H = await api("/app/api/home"); if (page === "home") 
 $("#main").addEventListener("click", async e => {
   const t = e.target;
   if (t.closest("#drop")) return pickFiles();
+  if (t.closest("#gdStart")) { ensureCfg(); openNew(); return $("#gdUrl").focus(); }
   const pg = t.closest("[data-page]"); if (pg) { page = pg.dataset.page; return render(); }
   const fp = t.closest("[data-fp]"); if (fp) { filter.profile = fp.dataset.fp; shown = PAGE; return renderList(); }
   const fs = t.closest("[data-fs]"); if (fs) { filter.status = fs.dataset.fs; shown = PAGE; return renderList(); }
@@ -513,6 +560,9 @@ function renderSettings() {
       <div class="fld"><label>AI 편집 기획 키 (Claude) ${s.anthropic ? `<span class="ok">· 설정됨</span>` : `<span class="muted">· 없으면 규칙 기반 편집</span>`}</label><input id="sAn" type="password" placeholder="${s.anthropic ? "바꿀 때만 입력" : "console.anthropic.com → API Keys"}"></div>
       <div class="fld"><label>GitHub 키 <span class="muted small">(선택 · 프로그램 저장소가 비공개일 때 업데이트용) ${U?.token ? "· 설정됨" : ""}</span></label>
         <input id="sGh" type="password" placeholder="${U?.token ? "바꿀 때만 입력" : "보통 비워 둡니다"}"></div>
+      <div class="fld"><label>끝난 프로젝트 자동 정리 <span class="muted small">('업로드 완료'로 바꾸거나 보관한 프로젝트의 중간 작업 파일만 지움 · 완성본·원본은 그대로, 다시 편집 가능)</span></label>
+        <div class="row"><select id="sAuto">${[[-1, "끄기"], [0, "바로"], [3, "3일 뒤"], [7, "7일 뒤(권장)"], [14, "14일 뒤"], [30, "30일 뒤"]].map(([v, n]) => `<option value="${v}" ${+s.auto_slim_days === v ? "selected" : ""}>${n}</option>`).join("")}</select>
+        <button id="sAutoNow">지금 정리</button></div></div>
       <button class="accent" id="sSave">저장</button>
       <h2>업데이트</h2>
       ${updSection()}
@@ -524,7 +574,7 @@ function renderSettings() {
 $("#main").addEventListener("click", async e => {
   if (e.target.id === "sSave") {
     busy(true, "저장 중…");
-    try { H = await api("/app/api/settings", {user_name: $("#sName").value.trim(), workspace: $("#sWs").value.trim(), whisper_model: $("#sWh").value, voicestudio_model: $("#sVm").value, voicestudio_url: $("#sVu").value.trim(), anthropic_key: $("#sAn").value.trim(), github_key: $("#sGh")?.value.trim() || ""}); if ($("#sGh")?.value) loadUpdate(true); renderSettings(); toast("저장했습니다"); }
+    try { H = await api("/app/api/settings", {user_name: $("#sName").value.trim(), workspace: $("#sWs").value.trim(), whisper_model: $("#sWh").value, voicestudio_model: $("#sVm").value, voicestudio_url: $("#sVu").value.trim(), anthropic_key: $("#sAn").value.trim(), github_key: $("#sGh")?.value.trim() || "", auto_slim_days: +$("#sAuto").value}); if ($("#sGh")?.value) loadUpdate(true); renderSettings(); toast("저장했습니다"); }
     catch (err) { toast(err.message, 6000); } finally { busy(false); }
   }
   const id = e.target.id;
@@ -533,6 +583,11 @@ $("#main").addEventListener("click", async e => {
   if (id === "updFileBtn") $("#updFile").click();
   if (id === "updBack" && confirm(`이전 버전(${U.backup.from})으로 되돌릴까요? 프로그램이 다시 시작됩니다.`)) { busy(true, "되돌리는 중…"); updAction(() => api("/app/api/update/rollback", {})); }
   if (id === "updDismiss") { U = await api("/app/api/update/dismiss", {}); render(); }
+  if (e.target.id === "sAutoNow") {
+    busy(true, "끝난 프로젝트를 정리하는 중…");
+    try { const j = await api("/app/api/autoslim", {}); H = await api("/app/api/home"); toast(j.projects ? `프로젝트 ${j.projects}개 정리 · ${j.freed_text} 확보` : "지금 정리할 끝난 프로젝트가 없습니다", 5000); }
+    catch (err) { toast(err.message, 6000); } finally { busy(false); }
+  }
   if (e.target.id === "sCheck") { busy(true, "점검 중…"); try { H = await api("/app/api/checks", {}); renderSettings(); } finally { busy(false); } }
 });
 $("#main").addEventListener("change", async e => {

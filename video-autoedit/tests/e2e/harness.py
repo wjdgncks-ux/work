@@ -122,6 +122,12 @@ def main() -> None:
     editor.transcribe = analyze.transcribe
 
     info = make_samples(root)
+    import fake_gdown  # 구글 드라이브 대신: 공유 폴더 하나(영상 1 + 문서 1)
+    fake_gdown.install()
+    memo = root / "media" / "메모.txt"
+    memo.write_text("촬영 메모", encoding="utf-8")
+    fake_gdown.FOLDERS["1E2eFolderAbcdef"] = [("1e2eaaaaaaaaaa", "촬영본/20260519_221634.mp4", root / "media" / "base.mp4"),
+                                              ("1e2ebbbbbbbbbb", "메모.txt", memo)]
     (root / "harness.json").write_text(json.dumps({**info, "port": args.port}, ensure_ascii=False))
     app.serve_app(port=args.port, open_browser=False, app=state)
 
