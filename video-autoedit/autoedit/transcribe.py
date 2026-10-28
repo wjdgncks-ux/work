@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from dataclasses import asdict, dataclass, field
 
+from .media import load_audio
+
 
 @dataclass
 class Word:
@@ -59,12 +61,22 @@ def transcribe(path: str, model_size: str = "small", language: str = "ko") -> Tr
     except Exception as exc:  # 모델 다운로드 실패 등
         print(f"  · Whisper 모델 로드 실패({exc}) → 음성 인식 생략", file=sys.stderr)
         return None
-    segments, info = model.transcribe(
-        path, language=language, word_timestamps=True, vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 300},
-    )
+    # 소리는 ffmpeg로 직접 풀어 넘긴다. 파일 경로를 주면 faster-whisper가 PyAV로 여는데, PyAV 15 이상에서
+    # faster-whisper 1.2.1까지의 av.open(metadata_errors=...) 호출이 실패한다(신고: "unexpected keyword argument
+    # 'metadata_errors'"). ffmpeg로 풀면 PyAV 버전과 무관하고, 휴대폰 영상(HEVC 등)도 편집과 같은 디코더로 읽는다.
+    audio = load_audio(path, 16000)
+    if audio.size == 0:
+        return Transcript(language, [])  # 소리 없는 영상
     sentences = []
-    for seg in segments:
-        words = [Word(round(w.start, 3), round(w.end, 3), w.word.strip()) for w in (seg.words or []) if w.word.strip()]
-        sentences.append(Sentence(round(seg.start, 3), round(seg.end, 3), seg.text.strip(), words))
+    try:
+        segments, info = model.transcribe(
+            audio, language=language, word_timestamps=True, vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 300},
+        )
+        for seg in segments:  # 실제 인식은 여기서 진행된다(지연 실행)
+            words = [Word(round(w.start, 3), round(w.end, 3), w.word.strip()) for w in (seg.words or []) if w.word.strip()]
+            sentences.append(Sentence(round(seg.start, 3), round(seg.end, 3), seg.text.strip(), words))
+    except Exception as exc:
+        raise RuntimeError(f"음성 인식(자동 캡션) 실패: {exc} — 급하면 설정·점검에서 '자동 캡션 정확도'를 '사용 안 함'으로 "
+                           "바꾸면 자막 없이 편집할 수 있습니다. 프로그램을 업데이트한 뒤 다시 시도하세요") from exc
     return Transcript(info.language or language, sentences)

@@ -111,3 +111,49 @@ def test_upload_reports_reason(tmp_path, monkeypatch):
     monkeypatch.setattr(appmod, "probe", lambda p: (_ for _ in ()).throw(FileNotFoundError("ffprobe")))
     with pytest.raises(ValueError, match="ffprobe"):
         appmod.AppState().upload("b.mp4", b"\x00")
+
+
+def test_transcribe_does_not_need_pyav(tmp_path, monkeypatch):
+    """faster-whisper 1.2.1 + PyAV 15 이상: 파일 경로를 넘기면 av.open(metadata_errors=…)에서 실패한다(실사용 신고).
+    ffmpeg로 푼 소리(16kHz 모노)를 넘겨 PyAV를 거치지 않는지 확인한다."""
+    import types
+
+    import numpy as np
+
+    from autoedit import transcribe as tr
+    seen = {}
+
+    class FakeModel:
+        def __init__(self, *a, **kw):
+            pass
+
+        def transcribe(self, audio, **kw):
+            seen["audio"] = audio
+            w = types.SimpleNamespace(start=0.1, end=0.5, word=" 안녕")
+            return iter([types.SimpleNamespace(start=0.1, end=0.5, text=" 안녕", words=[w])]), types.SimpleNamespace(language="ko")
+    fake = types.ModuleType("faster_whisper")
+    fake.WhisperModel = FakeModel
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake)
+    video = make_video(tmp_path / "갤럭시 영상.mp4", seconds=3)
+    t = tr.transcribe(str(video), "tiny")
+    assert isinstance(seen["audio"], np.ndarray) and seen["audio"].dtype == np.float32
+    assert 2.5 * 16000 < seen["audio"].size < 3.5 * 16000 and t.sentences[0].words[0].text == "안녕"
+    silent = tmp_path / "silent.mp4"
+    _ff("-f", "lavfi", "-i", "color=c=black:s=320x240:d=1", str(silent))
+    assert tr.transcribe(str(silent), "tiny").sentences == []  # 소리 없는 영상은 빈 대사
+
+    def boom(self, audio, **kw):
+        raise TypeError("open() got an unexpected keyword argument 'metadata_errors'")
+    monkeypatch.setattr(FakeModel, "transcribe", boom)
+    with pytest.raises(RuntimeError, match="사용 안 함"):
+        tr.transcribe(str(video), "tiny")
+
+
+def test_real_faster_whisper_audio_path_is_pyav_free():
+    """설치된 실제 faster-whisper가 배열 입력을 받으면 decode_audio(PyAV)를 부르지 않는다."""
+    fw = pytest.importorskip("faster_whisper")
+    import inspect
+    src = inspect.getsource(fw.WhisperModel.transcribe)
+    lines = [x.strip() for x in src.splitlines()]
+    i = lines.index("audio = decode_audio(audio, sampling_rate=sampling_rate)")
+    assert lines[i - 1] == "if not isinstance(audio, np.ndarray):"  # 배열이면 PyAV 디코딩을 건너뜀

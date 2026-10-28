@@ -274,7 +274,7 @@ CapCut과 다른 점(아직 없음): 화면 전환 효과(디졸브 등), 필터
 ## 테스트·사용성 하네스
 
 ```bash
-python -m pytest -q tests                          # 단위·통합(렌더링 포함) 64개
+python -m pytest -q tests                          # 단위·통합(렌더링 포함) 66개
 AUTOEDIT_SKIP_RENDER=1 python -m pytest -q tests   # 렌더링 제외(빠름)
 cd tests/e2e && npm install && cd ../.. && bash tests/e2e/run.sh   # 사용성 E2E → e2e-report/report.md
 ```
@@ -309,5 +309,6 @@ cd tests/e2e && npm install && cd ../.. && bash tests/e2e/run.sh   # 사용성 E
 | 실행기를 끄면 앱 프로세스가 남아 포트를 쥠 | 다음 실행 때 혼란 | 실행기가 끝날 때 앱도 종료 |
 | 노트북 화면에서 '음성' 탭 '원본 소리'가 세로로 찌그러지고 '대본 작성' 버튼이 잘림 | 버튼을 못 찾음 | 줄 바꿈 허용, E2E에 패널 잘림 검사 추가 |
 | 한국어 Windows + Python 3.13에서 영상을 올리면 전부 '읽을 수 없음'(ffmpeg 출력 속 한글 폴더 이름을 cp949로 읽다 실패) | 편집 시작 불가 | 모든 ffmpeg 출력을 UTF-8로 읽음 + 실행 스크립트 UTF-8 모드, cp949 환경 재현 테스트 추가, 실패 시 원인 표시 |
+| 최신 설치에서 자동 편집이 `open() got an unexpected keyword argument 'metadata_errors'`로 실패(faster-whisper 1.2.1이 PyAV 15+에서 없어진 인자 사용) | 자동 편집 불가 | 소리를 ffmpeg로 풀어 배열로 넘김(PyAV 미사용), 실패 시 '자막 없이 편집' 안내, 회귀 테스트 |
 | 노트북 화면에서 설정 항목이 늘어 '저장' 버튼이 화면 아래로 밀림 | 설정이 저장 안 된 줄 모름 | 저장 버튼을 화면 아래에 고정 |
 | 프로젝트 카드의 버튼(관리·보관·상태)이 좁은 카드에서 왼쪽으로 밀려 잘림 | '관리' 버튼을 누를 수 없음 | 버튼 줄 바꿈·카드 폭 안에 배치, E2E로 클릭 확인 |
