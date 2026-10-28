@@ -30,7 +30,7 @@ from .media import FFmpegError, probe
 from .osutil import reveal
 from .pipeline import RunOptions, run_pipeline
 from .platforms import PLATFORMS
-from .profiles import list_profiles, load_profile
+from .profiles import delete_profile, list_profiles, load_profile, save_profile
 from .project import REVIEW_STATES
 from .styles import STYLES
 
@@ -40,6 +40,8 @@ STYLE_DESC = {"explainer": "정보·노하우. 질문·숫자로 후킹, 짧은 
               "demo": "제품 시연·리뷰. 결과 먼저, 작업 구간 빨리감기"}
 AUTO_SLIM_DAYS = 7          # 기본: '업로드 완료'·보관 뒤 7일이 지나면 중간 파일 자동 정리(-1 = 끔)
 AUTO_SLIM_EVERY = 6 * 3600  # 프로그램이 켜져 있으면 6시간마다 다시 확인
+LOW_DISK_GB = 20            # 남은 공간이 이보다 적으면 기간과 상관없이 오래된 프로젝트부터 정리(0 = 끔)
+GB = 1024 ** 3
 
 
 def supervised() -> bool:
@@ -165,7 +167,8 @@ class AppState:
         for p in list_profiles():
             prof = load_profile(str(p))
             profiles.append({"key": prof.key, "name": prof.name, "style": prof.style, "platforms": prof.platforms,
-                             "handle": prof.handle, "notes": prof.notes})
+                             "handle": prof.handle, "notes": prof.notes, "hashtags": prof.hashtags,
+                             "cta": prof.brief.get("cta", "")})
         cfg = settings.load()
         return {
             "workspace": str(self.workspace), "profiles": profiles,
@@ -178,7 +181,8 @@ class AppState:
                          "anthropic": bool(settings.get_key("anthropic")),
                          "whisper_model": cfg.get("whisper_model", "small"), "whisper_installed": _whisper_available(),
                          "user_name": cfg.get("user_name", ""), "version": updater.current()["version"],
-                         "auto_slim_days": self.auto_slim_days()},
+                         "auto_slim_days": self.auto_slim_days(), "low_disk_gb": self.low_disk_gb()},
+            "disk": self.disk_state(),
             "auto_slim": self.auto_result,
             "style_cards": [{"id": c.id, "name": c.name, "samples": c.samples, "analyzed": bool(c.analysis)}
                             for c in reference.list_cards()],
@@ -266,6 +270,8 @@ class AppState:
                 ids = [Path(r["project"]).resolve().relative_to(self.workspace.resolve()).as_posix() for r in results]
                 self.job = {"state": "done", "projects": ids, "progress": 1.0,
                             "elapsed": round(time.time() - self.job["started"], 1)}
+                if self.disk_state().get("low"):  # 새 영상으로 공간이 모자라졌으면 바로 정리
+                    threading.Thread(target=self.auto_slim, daemon=True).start()
             except Exception as exc:  # 사용자에게 그대로 보여 준다
                 self.job = {"state": "error", "error": str(exc)[-800:], "trace": traceback.format_exc()[-1500:]}
 
@@ -297,6 +303,10 @@ class AppState:
         if ws:
             Path(ws).expanduser().mkdir(parents=True, exist_ok=True)
         settings.put(whisper_model=d.get("whisper_model"), user_name=d.get("user_name"), workspace=ws or None)
+        if d.get("low_disk_gb") is not None:
+            if float(d["low_disk_gb"]) not in (0, 10, 20, 50, 100):
+                raise ValueError("디스크 부족 기준이 올바르지 않습니다")
+            settings.put(low_disk_gb=float(d["low_disk_gb"]))
         if d.get("auto_slim_days") is not None:
             days = float(d["auto_slim_days"])
             if days not in (-1, 0, 1, 3, 7, 14, 30):
@@ -391,29 +401,51 @@ class AppState:
         v = settings.get("auto_slim_days")
         return AUTO_SLIM_DAYS if v is None else float(v)
 
+    def low_disk_gb(self) -> float:
+        v = settings.get("low_disk_gb")
+        return LOW_DISK_GB if v is None else float(v)
+
+    def disk_state(self) -> dict:
+        try:
+            free = housekeeping.disk_free(self.workspace)
+        except OSError:
+            return {}
+        limit = self.low_disk_gb() * GB
+        return {"free": free, "free_text": housekeeping.human(free), "low": bool(limit and free < limit),
+                "limit_text": f"{self.low_disk_gb():.0f}GB"}
+
     def auto_slim(self, now: float | None = None) -> dict | None:
-        """끝난 프로젝트('업로드 완료'·보관)의 중간 파일을 자동 정리한다. 원본은 지우지 않는다(다시 편집 가능)."""
-        days = self.auto_slim_days()
-        if days < 0 or self.job.get("state") == "running":
+        """끝난 프로젝트('업로드 완료'·보관)의 중간 파일을 자동 정리한다. 원본은 지우지 않는다(다시 편집 가능).
+        디스크 남은 공간이 기준보다 적으면 기간과 상관없이 오래된 프로젝트부터, 기준을 넘을 때까지 더 정리한다."""
+        days, limit = self.auto_slim_days(), self.low_disk_gb() * GB
+        if self.job.get("state") == "running" or (self.editor and self.editor.job.get("state") == "running"):
             return None
-        if self.editor and self.editor.job.get("state") == "running":
-            return None
+        now = now or time.time()
         skip = set()
         if self.editor and self.workspace in self.editor.project.pdir.parents:
             skip.add(self.editor.project.pdir.relative_to(self.workspace).as_posix())  # 편집기에 열린 프로젝트는 건드리지 않음
-        freed, names = 0, []
-        for p in housekeeping.auto_candidates(self.projects(), days=days, now=now or time.time(), skip=skip):
+        projects = self.projects()
+        regular = housekeeping.auto_candidates(projects, days=days, now=now, skip=skip) if days >= 0 else []
+        low = bool(limit) and housekeeping.disk_free(self.workspace) < limit
+        extra = [p for p in housekeeping.low_disk_order(projects, now=now, skip=skip) if p not in regular] if low else []
+        if not regular and not extra:
+            return self.auto_result if days >= 0 or limit else None
+        freed, names, by_disk = 0, [], 0
+        for p in regular + extra:
+            if p in extra and housekeeping.disk_free(self.workspace) >= limit:
+                break  # 기준 공간을 되찾았으면 그만
             try:
                 pdir = self.project_dir(p["id"])
                 if housekeeping.usage(self.workspace, pdir)["work"] <= 0:
                     continue
                 freed += self.slim(p["id"], False)["freed"]
                 names.append(p["name"])
+                by_disk += p in extra
             except (OSError, ValueError):
                 continue
         if names:
             self.auto_result = {"at": time.strftime("%m-%d %H:%M"), "projects": len(names), "names": names[:5],
-                                "freed": freed, "freed_text": housekeeping.human(freed)}
+                                "freed": freed, "freed_text": housekeeping.human(freed), "low_disk": by_disk}
         return self.auto_result
 
     def _auto_slim_soon(self) -> None:
@@ -477,6 +509,14 @@ class AppState:
                 freed += self.slim(p["id"], originals)["freed"]
                 n += 1
         return {"projects": n, "freed": freed, "freed_text": housekeeping.human(freed)}
+
+    # ---------- 채널 ----------
+    def save_channel(self, d: dict) -> str:
+        return save_profile(d, key=d.get("key") or None)
+
+    def delete_channel(self, key: str) -> None:
+        delete_profile(key)
+        reference.set_channel_default(key, None)  # 그 채널의 기본 스타일 카드 연결도 정리
 
     def set_archived(self, pid: str, archived: bool) -> None:
         """보관: 지우지 않고 목록에서만 숨긴다(보관함에서 다시 꺼낼 수 있음)."""
@@ -562,6 +602,12 @@ def make_app_handler(app: AppState):
                     return self._json(app.slim(data["id"], bool(data.get("originals"))))
                 if path == "/app/api/project/delete":
                     return self._json(app.delete(data["id"], bool(data.get("originals", True))))
+                if path == "/app/api/channel/save":
+                    key = app.save_channel(data)
+                    return self._json({**app.home(), "saved": key})
+                if path == "/app/api/channel/delete":
+                    app.delete_channel(data["key"])
+                    return self._json(app.home())
                 if path == "/app/api/drive/start":
                     return self._json(app.start_drive(data.get("url", "")))
                 if path == "/app/api/drive/cancel":

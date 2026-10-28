@@ -130,6 +130,21 @@ def slim(ws: Path, pdir: Path, *, originals: bool = False) -> int:
     return freed
 
 
+def disk_free(ws: Path) -> int:
+    """작업 폴더가 있는 디스크의 남은 공간(바이트)."""
+    return shutil.disk_usage(ws).free
+
+
+def low_disk_order(projects: list[dict], *, now: float, skip: set[str] = frozenset(),
+                   recent_hours: float = 24) -> list[dict]:
+    """디스크가 모자랄 때 정리 순서: 끝난 프로젝트(업로드 완료·보관)를 기간과 상관없이 오래된 순으로,
+    그다음 하루 넘게 손대지 않은 나머지 프로젝트를 오래된 순으로. 원본은 지우지 않는다."""
+    pool = [p for p in projects if p["id"] not in skip and not p.get("originals_removed")]
+    done = sorted((p for p in pool if p.get("status") == "업로드 완료" or p.get("archived")), key=lambda p: p["updated"])
+    rest = sorted((p for p in pool if p not in done and now - p["updated"] >= recent_hours * 3600), key=lambda p: p["updated"])
+    return done + rest
+
+
 def auto_candidates(projects: list[dict], *, days: float, now: float, skip: set[str] = frozenset()) -> list[dict]:
     """자동 정리 대상: '업로드 완료'이거나 보관한 프로젝트 중 마지막 수정 뒤 days일이 지난 것.
     원본은 지우지 않으므로(다시 편집 가능) 대상이 틀려도 잃는 것은 다시 만들 수 있는 파일뿐이다."""

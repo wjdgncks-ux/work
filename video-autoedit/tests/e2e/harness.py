@@ -128,7 +128,13 @@ def main() -> None:
     memo.write_text("촬영 메모", encoding="utf-8")
     fake_gdown.FOLDERS["1E2eFolderAbcdef"] = [("1e2eaaaaaaaaaa", "촬영본/20260519_221634.mp4", root / "media" / "base.mp4"),
                                               ("1e2ebbbbbbbbbb", "메모.txt", memo)]
-    (root / "harness.json").write_text(json.dumps({**info, "port": args.port}, ensure_ascii=False))
+    from autoedit import housekeeping  # 남은 공간: root/disk_gb 파일이 있으면 그 값(GB), 없으면 넉넉하게
+
+    def fake_free(ws):
+        f = root / "disk_gb"
+        return int(float(f.read_text()) * 1024 ** 3) if f.exists() else 500 * 1024 ** 3
+    housekeeping.disk_free = fake_free
+    (root / "harness.json").write_text(json.dumps({**info, "port": args.port, "root": str(root)}, ensure_ascii=False))
     app.serve_app(port=args.port, open_browser=False, app=state)
 
 

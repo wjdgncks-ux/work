@@ -77,6 +77,17 @@ SFX_LABEL = {"whoosh": "휙(전환)", "pop": "뽁(강조)", "ding": "띵(정답�
 THUMB_H = 64
 
 
+def _channel_name(key: str | None) -> str | None:
+    """편집기 머리말에 채널 key 대신 이름(이름을 바꿨거나 지운 채널이면 key 그대로)."""
+    if not key:
+        return None
+    try:
+        from .profiles import load_profile
+        return load_profile(key).name
+    except (FileNotFoundError, ValueError):
+        return key
+
+
 def ensure_proxy(src: str, workdir: Path) -> Path:
     """브라우저에서 바로 재생·탐색할 수 있는 편집용 사본. 원본이 HEVC(아이폰 기본)·ProRes거나 FHD 초과면 만든다.
     시간축은 원본과 같으므로 편집 결과(plan.json)는 그대로 원본으로 렌더링된다."""
@@ -183,7 +194,7 @@ class EditorState:
                             "path": str(path) if path else ""}
         return {
             "meta": {
-                "name": pr.name, "profile": pr.meta.get("profile"), "planner": pr.meta.get("planner"),
+                "name": pr.name, "profile": _channel_name(pr.meta.get("profile")), "planner": pr.meta.get("planner"),
                 "dir": str(pr.pdir),
                 "platform": {"key": pf.key, "label": pf.label, "width": pf.width, "height": pf.height, "fps": pf.fps,
                              "target": pf.target_seconds, "max_shot": pf.max_shot_seconds,

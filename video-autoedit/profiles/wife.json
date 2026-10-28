@@ -1,6 +1,6 @@
 {
-  "name": "와이프 채널",
-  "handle": "@와이프계정",
+  "name": "범상무님 채널",
+  "handle": "@범상무님계정",
   "style": "funny",
   "platforms": "reels,tiktok",
   "brief": {
@@ -9,12 +9,15 @@
     "audience": "[채널 타겟]",
     "cta": "공감되면 친구 태그하기"
   },
-  "hashtags": ["#일상", "#공감"],
+  "hashtags": [
+    "#일상",
+    "#공감"
+  ],
   "sponsored": false,
   "render": {
     "font": "auto",
     "highlight": "#FF5FA2",
     "assets": "../assets/wife"
   },
-  "notes": "회사 제품이 등장하면 협찬 여부와 무관하게 이해관계 표기를 켜는 것을 기본값으로(가족 관계의 표기 의무 범위는 공정위 원문 확인 필요)."
+  "notes": "회사 임원 채널. 회사 제품·서비스가 나오면 협찬 여부와 무관하게 경제적 이해관계(임직원) 표기를 켤 것(공정위 「추천·보증 등에 관한 표시·광고 심사지침」)."
 }

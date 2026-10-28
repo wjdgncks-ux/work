@@ -82,6 +82,8 @@ button.danger:hover{background:#5c2222}
 .opt:hover{border-color:#55555d}.opt.on{border-color:var(--accent);background:#14393b66}
 .opt b{display:block}.opt small{color:var(--muted)}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.chrow{display:flex;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px}
+.chform{border:1px solid var(--accent);border-radius:10px;padding:12px;margin-bottom:8px}.chform .fld>label{display:block;color:var(--muted);margin-bottom:4px;font-size:12px}.chform .fld{margin-bottom:8px}.chform input:not([type]),.chform select{width:100%}
 #sSave{position:sticky;bottom:16px;z-index:2;box-shadow:0 4px 18px #000a}
 .gd{display:flex;gap:8px;margin-top:10px}.gd input{flex:1;min-width:0}
 #gdHome{margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -129,7 +131,8 @@ async function api(path, body) {
 let H = null, page = "home", filter = {profile: "", status: "", q: "", sort: "updated", archived: false}, shown = 24;
 const PAGE = 24;
 const STYLE_OF = {explainer: "설명형", funny: "유머", demo: "시연"};
-const profName = k => (H.profiles.find(p => p.key === k) || {}).name || (k ? k : "프로필 없음");
+const profName = k => (H.profiles.find(p => p.key === k) || {}).name || (k ? `${k} (지운 채널)` : "채널 없음");
+const knownCh = p => H.profiles.some(c => c.key === p.profile);
 
 async function load() { H = await api("/app/api/home"); render(); if (H.job.state === "running") showProgress(); loadUpdate(); }
 
@@ -207,6 +210,8 @@ function renderHome() {
     ${updBanner()}
     <div id="drop"><div class="plus">+</div><div><b>새 프로젝트</b><div class="muted">촬영한 영상을 여기에 끌어다 놓거나 눌러서 고르세요. 여러 개도 됩니다.</div>
       <div class="muted small">AI가 컷·후킹·자막·효과음을 먼저 편집해 두고, 편집기에서 다듬습니다.</div></div></div>
+    ${H.disk?.low ? `<div class="banner" id="diskBanner"><b>디스크 남은 공간 ${esc(H.disk.free_text)}</b> (기준 ${esc(H.disk.limit_text)} 미만) — 끝난 프로젝트부터 오래된 순으로 중간 파일을 자동 정리합니다.
+      <div class="small" style="margin-top:4px">그래도 부족하면 카드의 '관리'에서 원본까지 정리하거나 프로젝트를 삭제하세요.</div><button id="diskNow" style="margin-top:8px">지금 정리</button></div>` : ""}
     <div id="gdHome"><button id="gdStart">구글 드라이브 링크로 가져오기</button><span class="muted small">폴더 링크를 넣으면 안의 영상을 모두 받습니다</span></div>
     <h2>프로젝트 <span class="muted small" id="pcount"></span></h2>
     ${H.auto_slim ? `<div class="muted small" style="margin:-4px 0 8px">자동 정리(${esc(H.auto_slim.at)}): 끝난 프로젝트 ${H.auto_slim.projects}개의 중간 파일 · ${esc(H.auto_slim.freed_text)} 확보</div>` : ""}
@@ -220,7 +225,7 @@ function renderHome() {
 }
 function projectMatches(p) {
   if (!!p.archived !== filter.archived) return false;
-  if (filter.profile && p.profile !== filter.profile) return false;
+  if (filter.profile === "_other" ? knownCh(p) : filter.profile && p.profile !== filter.profile) return false;
   if (filter.status && p.status !== filter.status) return false;
   const q = filter.q.trim().toLowerCase();
   return !q || [p.name, p.topic, p.notes, p.reference, p.platform_label, profName(p.profile)].join(" ").toLowerCase().includes(q);
@@ -231,10 +236,14 @@ function renderList() {
   if (filter.sort === "old") list.reverse();
   if (filter.sort === "name") list.sort((a, b) => a.name.localeCompare(b.name, "ko"));
   const cnt = (f) => base.filter(f).length;
+  if (filter.profile && filter.profile !== "_other" && !H.profiles.some(c => c.key === filter.profile)) filter.profile = "";
+  const other = cnt(x => !knownCh(x));
   $("#pcount").textContent = `${list.length}개${filter.archived ? " · 보관함" : ""}`;
   $("#pfilters").innerHTML = `
       <button data-fp="" class="${!filter.profile ? "on" : ""}">전체 채널<small>${base.length}</small></button>
       ${H.profiles.map(p => `<button data-fp="${esc(p.key)}" class="${filter.profile === p.key ? "on" : ""}">${esc(p.name)}<small>${cnt(x => x.profile === p.key)}</small></button>`).join("")}
+      ${other ? `<button data-fp="_other" class="${filter.profile === "_other" ? "on" : ""}" title="채널을 지정하지 않았거나 지운 채널의 프로젝트">기타<small>${other}</small></button>` : ""}
+      <button id="chEdit" class="ghost" title="채널 이름 바꾸기·추가·삭제">✎ 채널 편집</button>
       <span style="width:12px"></span>
       <button data-fs="" class="${!filter.status ? "on" : ""}">모든 상태</button>
       ${H.review_states.map(s => `<button data-fs="${s}" class="${filter.status === s ? "on" : ""}">${s}<small>${cnt(x => x.status === s)}</small></button>`).join("")}`;
@@ -478,9 +487,56 @@ $("#modal").addEventListener("click", async e => {
     }
   } catch (err) { toast(err.message, 7000); } finally { busy(false); }
 });
+/* 채널 편집: 이름·핸들·기본 영상 종류·올릴 곳·CTA·해시태그, 추가·삭제 */
+let chOpen = false, chEditing = null;
+function channelForm(c) {
+  const plats = (c.platforms || "reels").split(",");
+  return `<div class="chform" data-chform="${esc(c.key || "")}">
+    <div class="fld"><label>채널 이름</label><input data-chf="name" value="${esc(c.name || "")}" placeholder="예) 범상무님 채널" maxlength="30"></div>
+    <div class="fld"><label>계정(핸들) <span class="muted small">— 영상 끝 화면에 표시</span></label><input data-chf="handle" value="${esc(c.handle || "")}" placeholder="@계정이름"></div>
+    <div class="fld"><label>기본 영상 종류</label><select data-chf="style">${Object.entries(STYLE_OF).map(([k, n]) => `<option value="${k}" ${(c.style || "explainer") === k ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+    <div class="fld"><label>기본으로 올릴 곳</label><div class="row">${H.platforms.map(p => `<label class="ck"><input type="checkbox" data-chplat="${p.key}" ${plats.includes(p.key) ? "checked" : ""}> ${esc(p.label)}</label>`).join("")}</div></div>
+    <div class="fld"><label>마지막 행동 유도(CTA)</label><input data-chf="cta" value="${esc(c.cta || "")}" placeholder="예) 저장해두고 필요할 때 꺼내보세요"></div>
+    <div class="fld"><label>해시태그 <span class="muted small">— 띄어쓰기로 구분</span></label><input data-chf="hashtags" value="${esc((c.hashtags || []).join(" "))}" placeholder="#일상 #공감"></div>
+    <div class="row"><button class="accent" data-chsave="${esc(c.key || "")}">저장</button><button data-chcancel>취소</button></div></div>`;
+}
+function openChannels() {
+  chOpen = true;
+  const n = k => H.projects.filter(p => p.profile === k).length;
+  $("#mbox").innerHTML = `<h3><span>채널 편집</span><button class="ghost" id="mClose">✕</button></h3>
+    <div class="muted small" style="margin-bottom:10px">채널마다 기본 영상 종류·올릴 곳·CTA·해시태그가 새 프로젝트에 자동으로 들어갑니다. 이름을 바꿔도 기존 프로젝트는 그대로 그 채널에 있습니다.</div>
+    ${H.profiles.map(c => chEditing === c.key ? channelForm(c) : `<div class="chrow"><div style="min-width:0;flex:1"><b>${esc(c.name)}</b> <span class="muted small">${esc(c.handle || "")} · ${STYLE_OF[c.style] || ""} · 프로젝트 ${n(c.key)}개</span></div>
+      <button data-chedit="${esc(c.key)}">수정</button><button class="ghost" data-chdel="${esc(c.key)}" title="채널 삭제(프로젝트는 남음)">삭제</button></div>`).join("")}
+    ${chEditing === "" ? channelForm({}) : `<button id="chAdd" style="margin-top:10px">+ 채널 추가</button>`}`;
+  $("#modal").classList.add("on");
+  const first = $("#mbox [data-chf=name]"); if (first) first.focus();
+}
+$("#modal").addEventListener("click", async e => {
+  if (!chOpen) return;
+  const t = e.target;
+  const ed = t.closest("[data-chedit]"); if (ed) { chEditing = ed.dataset.chedit; return openChannels(); }
+  if (t.id === "chAdd") { chEditing = ""; return openChannels(); }
+  if (t.closest("[data-chcancel]")) { chEditing = null; return openChannels(); }
+  const sv = t.closest("[data-chsave]");
+  if (sv) {
+    const f = t.closest("[data-chform]"), v = k => f.querySelector(`[data-chf=${k}]`).value;
+    const body = {key: sv.dataset.chsave || null, name: v("name").trim(), handle: v("handle"), style: v("style"), cta: v("cta"), hashtags: v("hashtags"),
+                  platforms: [...f.querySelectorAll("[data-chplat]")].filter(c => c.checked).map(c => c.dataset.chplat)};
+    try { H = await api("/app/api/channel/save", body); chEditing = null; openChannels(); renderList(); toast(`'${body.name}' 채널을 저장했습니다`); }
+    catch (err) { toast(err.message, 6000); }
+    return;
+  }
+  const dl = t.closest("[data-chdel]");
+  if (dl) {
+    const c = H.profiles.find(x => x.key === dl.dataset.chdel), n = H.projects.filter(p => p.profile === c.key).length;
+    if (!confirm(`'${c.name}' 채널을 목록에서 지울까요?${n ? `\n이 채널의 프로젝트 ${n}개와 완성본은 지우지 않고 '기타'에 남습니다.` : ""}`)) return;
+    try { H = await api("/app/api/channel/delete", {key: c.key}); if (cfg?.profile === c.key) cfg = null; openChannels(); renderList(); toast(`'${c.name}' 채널을 지웠습니다`); }
+    catch (err) { toast(err.message, 6000); }
+  }
+});
 function closeModal() {
   if (drivePoll) { clearTimeout(drivePoll); drivePoll = null; api("/app/api/drive/cancel", {}).catch(() => {}); }
-  managing = null; mUsage = null; $("#modal").classList.remove("on"); uploads = []; refUploads = []; driveRemoved = new Set();
+  managing = null; mUsage = null; chOpen = false; chEditing = null; $("#modal").classList.remove("on"); uploads = []; refUploads = []; driveRemoved = new Set();
 }
 async function showProgress() {
   $("#modal").classList.add("on");
@@ -513,6 +569,13 @@ async function refresh() { H = await api("/app/api/home"); if (page === "home") 
 $("#main").addEventListener("click", async e => {
   const t = e.target;
   if (t.closest("#drop")) return pickFiles();
+  if (t.closest("#chEdit")) return openChannels();
+  if (t.closest("#diskNow")) {
+    busy(true, "공간을 확보하는 중…");
+    try { const j = await api("/app/api/autoslim", {}); H = await api("/app/api/home"); renderHome(); toast(j.projects ? `프로젝트 ${j.projects}개 정리 · ${j.freed_text} 확보` : "정리할 중간 파일이 없습니다. '관리'에서 원본 정리·삭제를 검토하세요", 7000); }
+    catch (err) { toast(err.message, 6000); } finally { busy(false); }
+    return;
+  }
   if (t.closest("#gdStart")) { ensureCfg(); openNew(); return $("#gdUrl").focus(); }
   const pg = t.closest("[data-page]"); if (pg) { page = pg.dataset.page; return render(); }
   const fp = t.closest("[data-fp]"); if (fp) { filter.profile = fp.dataset.fp; shown = PAGE; return renderList(); }
@@ -563,6 +626,8 @@ function renderSettings() {
       <div class="fld"><label>끝난 프로젝트 자동 정리 <span class="muted small">('업로드 완료'로 바꾸거나 보관한 프로젝트의 중간 작업 파일만 지움 · 완성본·원본은 그대로, 다시 편집 가능)</span></label>
         <div class="row"><select id="sAuto">${[[-1, "끄기"], [0, "바로"], [3, "3일 뒤"], [7, "7일 뒤(권장)"], [14, "14일 뒤"], [30, "30일 뒤"]].map(([v, n]) => `<option value="${v}" ${+s.auto_slim_days === v ? "selected" : ""}>${n}</option>`).join("")}</select>
         <button id="sAutoNow">지금 정리</button></div></div>
+      <div class="fld"><label>디스크가 부족하면 먼저 정리 <span class="muted small">(남은 공간이 기준보다 적으면 기간과 상관없이 끝난 프로젝트 → 하루 넘게 안 연 프로젝트 순으로, 오래된 것부터 중간 파일 정리 · 지금 남은 공간 ${esc(H.disk?.free_text || "?")})</span></label>
+        <select id="sLow">${[[0, "끄기"], [10, "10GB 미만일 때"], [20, "20GB 미만일 때(권장)"], [50, "50GB 미만일 때"], [100, "100GB 미만일 때"]].map(([v, n]) => `<option value="${v}" ${+s.low_disk_gb === v ? "selected" : ""}>${n}</option>`).join("")}</select></div>
       <button class="accent" id="sSave">저장</button>
       <h2>업데이트</h2>
       ${updSection()}
@@ -574,7 +639,7 @@ function renderSettings() {
 $("#main").addEventListener("click", async e => {
   if (e.target.id === "sSave") {
     busy(true, "저장 중…");
-    try { H = await api("/app/api/settings", {user_name: $("#sName").value.trim(), workspace: $("#sWs").value.trim(), whisper_model: $("#sWh").value, voicestudio_model: $("#sVm").value, voicestudio_url: $("#sVu").value.trim(), anthropic_key: $("#sAn").value.trim(), github_key: $("#sGh")?.value.trim() || "", auto_slim_days: +$("#sAuto").value}); if ($("#sGh")?.value) loadUpdate(true); renderSettings(); toast("저장했습니다"); }
+    try { H = await api("/app/api/settings", {user_name: $("#sName").value.trim(), workspace: $("#sWs").value.trim(), whisper_model: $("#sWh").value, voicestudio_model: $("#sVm").value, voicestudio_url: $("#sVu").value.trim(), anthropic_key: $("#sAn").value.trim(), github_key: $("#sGh")?.value.trim() || "", auto_slim_days: +$("#sAuto").value, low_disk_gb: +$("#sLow").value}); if ($("#sGh")?.value) loadUpdate(true); renderSettings(); toast("저장했습니다"); }
     catch (err) { toast(err.message, 6000); } finally { busy(false); }
   }
   const id = e.target.id;

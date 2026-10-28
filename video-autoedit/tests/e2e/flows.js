@@ -326,6 +326,44 @@ async function layout(page, where, selectors) {
     await page.waitForFunction(() => /정리할 끝난 프로젝트가 없습니다|확보/.test(document.querySelector("#toast")?.textContent || ""), null, { timeout: 10000 });
     check("설정: '지금 정리' 실행 결과 안내", true);
     await layout(page, "설정 자동 정리", ["#sAuto", "#sAutoNow"]);
+
+    // 17) 채널 편집: 이름 바꾸기·추가·삭제
+    await page.click('#side [data-page="home"]');
+    await page.waitForSelector("#chEdit");
+    await page.click("#chEdit");
+    await page.waitForSelector('[data-chedit="me"]');
+    check("채널 편집: 기본 채널 3개(범상무님 채널 포함)", (await page.textContent("#mbox")).includes("범상무님 채널") && (await page.$$(".chrow")).length === 3);
+    await page.click('[data-chedit="me"]');
+    await page.fill('[data-chform="me"] [data-chf="name"]', "정후찬 채널");
+    await page.click('[data-chsave="me"]');
+    await page.waitForFunction(() => /정후찬 채널/.test(document.querySelector("#pfilters").textContent), null, { timeout: 5000 });
+    check("채널 편집: 이름 바꾸면 카테고리 버튼에 바로 반영", true);
+    await page.click("#chAdd");
+    await page.fill('[data-chform=""] [data-chf="name"]', "테스트 채널");
+    await page.selectOption('[data-chform=""] [data-chf="style"]', "demo");
+    await layout(page, "채널 추가 창", ['[data-chsave=""]']);
+    await shot(page, "11-channels");
+    await page.click('[data-chsave=""]');
+    await page.waitForFunction(() => /테스트 채널/.test(document.querySelector("#pfilters").textContent), null, { timeout: 5000 });
+    check("채널 편집: 새 채널 추가", (await page.$$(".chrow")).length === 4);
+    await page.click('.chrow:has-text("테스트 채널") [data-chdel]');
+    await page.waitForFunction(() => !/테스트 채널/.test(document.querySelector("#pfilters").textContent), null, { timeout: 5000 });
+    check("채널 편집: 채널 삭제", (await page.$$(".chrow")).length === 3);
+    await page.click("#mClose");
+    await page.click("#gdStart");
+    await page.waitForSelector('[data-prof="me"]');
+    check("새 프로젝트 창에도 바뀐 채널 이름", (await page.textContent('[data-prof="me"]')).includes("정후찬 채널"));
+    await page.click("#mClose");
+
+    // 18) 디스크 부족: 안내 배너 → 지금 정리
+    fs.writeFileSync(path.join(harness.root, "disk_gb"), "5");
+    await page.reload();
+    await page.waitForSelector("#diskBanner", { timeout: 10000 });
+    check("디스크 부족: 남은 공간·기준 안내", (await page.textContent("#diskBanner")).includes("5.0GB") && (await page.textContent("#diskBanner")).includes("20GB"));
+    await page.click("#diskNow");
+    await page.waitForFunction(() => /정리|중간 파일이 없습니다/.test(document.querySelector("#toast")?.textContent || ""), null, { timeout: 10000 });
+    check("디스크 부족: '지금 정리' 결과 안내", true);
+    fs.unlinkSync(path.join(harness.root, "disk_gb"));
   } catch (e) {
     check("흐름 중단 없이 끝까지 진행", false, e.message.split("\n")[0]); if (process.env.E2E_DEBUG) console.log(e.message);
     await shot(page, "zz-failure").catch(() => {});

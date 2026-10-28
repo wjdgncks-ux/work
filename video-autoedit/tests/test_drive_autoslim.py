@@ -25,6 +25,7 @@ def st(tmp_path, monkeypatch):
     fake_gdown.reset()
     monkeypatch.setenv("AUTOEDIT_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(appmod.settings, "workspace", lambda: tmp_path / "ws")
+    monkeypatch.setattr(appmod.housekeeping, "disk_free", lambda ws: 500 * appmod.GB)  # 디스크 넉넉(기본)
     return appmod.AppState()
 
 
@@ -131,3 +132,30 @@ def test_auto_slim_immediately_when_set_to_zero(st):
             break
         time.sleep(0.05)
     assert not (p / "work").exists() and json.loads((p / "project.json").read_text(encoding="utf-8"))["slimmed"]
+
+
+def test_low_disk_cleans_oldest_until_enough(st, monkeypatch):
+    ws = st.workspace
+    now = time.time()
+    mk = {}
+    for name, status, age_h in (("A", "업로드 완료", 1), ("B", "편집 중", 72), ("C", "편집 중", 48), ("D", "편집 중", 1)):
+        pdir = project(ws, "me", name, [put(ws / "원본영상" / f"{name}.mp4", 100)])
+        if status != "편집 중":
+            st.set_status(f"me/{name}/reels", status)
+        os.utime(pdir / "project.json", (now - age_h * 3600,) * 2)
+        mk[name] = pdir
+    slimmed = lambda: sum(not (d / "work").exists() for d in mk.values())  # noqa: E731
+    monkeypatch.setattr(appmod.housekeeping, "disk_free", lambda ws: (10 + 6 * slimmed()) * appmod.GB)  # 하나 정리할 때마다 6GB
+    assert st.disk_state()["low"] and st.disk_state()["free_text"] == "10.0GB"
+    r = st.auto_slim(now=now)
+    assert r["low_disk"] == 2 and r["names"] == ["A", "B"]  # 끝난 것(기간 무관) → 오래 안 연 것, 20GB 넘자 멈춤
+    assert (mk["C"] / "work").exists() and (mk["D"] / "work").exists()
+    assert all((ws / "원본영상" / f"{n}.mp4").exists() for n in "ABCD")  # 원본은 그대로
+    assert not st.disk_state()["low"]
+    st.save_settings({"low_disk_gb": 0})
+    monkeypatch.setattr(appmod.housekeeping, "disk_free", lambda ws: 1 * appmod.GB)
+    st.auto_result = None
+    assert st.auto_slim(now=now) is None  # 끄면 공간이 부족해도 기간 규칙(7일)만 따른다
+    assert (mk["C"] / "work").exists() and not st.disk_state()["low"]
+    with pytest.raises(ValueError):
+        st.save_settings({"low_disk_gb": 7})
