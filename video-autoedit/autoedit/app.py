@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import doctor, housekeeping, reference, settings, updater, voice
 from .editor import STATIC, EditorState, _whisper_available, make_handler
-from .media import probe
+from .media import FFmpegError, probe
 from .osutil import reveal
 from .pipeline import RunOptions, run_pipeline
 from .platforms import PLATFORMS
@@ -49,6 +49,19 @@ def request_restart() -> None:
     """업데이트를 마친 뒤 앱을 끝내면 실행기가 새 버전으로 다시 띄운다. 테스트·하네스는 이 함수를 바꿔 끼운다."""
     if supervised():
         threading.Timer(1.0, lambda: os._exit(updater.RESTART_CODE)).start()
+
+
+def probe_reason(exc: Exception) -> str:
+    """ffprobe 실패를 사용자가 할 일로 바꿔 말한다."""
+    if isinstance(exc, FileNotFoundError):
+        return "ffmpeg(ffprobe)를 찾지 못했습니다. install-windows.bat을 다시 실행하거나 '설정·점검'을 확인하세요"
+    if isinstance(exc, FFmpegError):
+        lines = [x.strip() for x in str(exc).splitlines() if x.strip()]
+        tail = lines[-1] if lines else ""
+        if "Invalid data" in tail or "moov atom not found" in tail:
+            return "파일이 깨졌거나 다 받아지지 않았습니다(구글 드라이브에서 다시 내려받아 보세요)"
+        return tail[:200] or "ffprobe 오류"
+    return f"{type(exc).__name__}: {str(exc)[:200]}"
 
 
 class AppState:
@@ -188,9 +201,9 @@ class AppState:
         dest.write_bytes(body)
         try:
             info = probe(dest)
-        except Exception as exc:  # 영상이 아니거나 깨진 파일
+        except Exception as exc:  # 영상이 아니거나 깨진 파일 — 원인을 같이 보여 준다
             dest.unlink(missing_ok=True)
-            raise ValueError(f"{name}: 영상 파일을 읽을 수 없습니다") from exc
+            raise ValueError(f"{name}: 영상 파일을 읽을 수 없습니다 — {probe_reason(exc)}") from exc
         return {"id": dest.name, "name": dest.name, "duration": round(info.duration, 1),
                 "size": f"{info.display_size[0]}x{info.display_size[1]}"}
 

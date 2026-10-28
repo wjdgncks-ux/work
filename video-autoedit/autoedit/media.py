@@ -22,7 +22,7 @@ def require_ffmpeg() -> None:
 
 
 def run(args: list[str], *, capture: bool = True) -> subprocess.CompletedProcess:
-    proc = subprocess.run(args, capture_output=capture, text=True)
+    proc = subprocess.run(args, capture_output=capture, text=True, encoding="utf-8", errors="replace")
     if proc.returncode != 0:
         tail = (proc.stderr or "")[-2000:]
         raise FFmpegError(f"명령 실패 ({args[0]}): {tail}")

@@ -248,7 +248,7 @@ def rollback(root: Path | None = None) -> dict:
 def pip_install(root: Path) -> tuple[bool, str]:
     import subprocess
     r = subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(root / "requirements.txt")],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     return r.returncode == 0, (r.stdout + r.stderr)[-1500:]
 
 

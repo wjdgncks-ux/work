@@ -118,7 +118,7 @@ class VoiceStore:
 def probe_audio_duration(path: Path) -> float:
     import subprocess
     out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
-                         capture_output=True, text=True).stdout.strip()
+                         capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
     return float(out or 0)
 
 

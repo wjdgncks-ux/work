@@ -35,7 +35,7 @@ def _fc_has(family: str) -> bool | None:
     """fontconfig로 글꼴 존재 확인. fc-list가 없으면 None(확인 불가)."""
     if not shutil.which("fc-list"):
         return None
-    out = subprocess.run(["fc-list", f":family={family}", "family"], capture_output=True, text=True).stdout
+    out = subprocess.run(["fc-list", f":family={family}", "family"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     return bool(out.strip())
 
 
@@ -54,8 +54,8 @@ def resolve_font(name: str = "auto") -> str:
 def _ffmpeg_info() -> tuple[bool, str, bool]:
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         return False, "", False
-    ver = subprocess.run(["ffmpeg", "-hide_banner", "-version"], capture_output=True, text=True).stdout.split("\n")[0]
-    filters = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True).stdout
+    ver = subprocess.run(["ffmpeg", "-hide_banner", "-version"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.split("\n")[0]
+    filters = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     return True, ver, " ass " in filters and " subtitles " in filters
 
 

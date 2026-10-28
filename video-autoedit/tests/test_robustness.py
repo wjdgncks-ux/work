@@ -81,3 +81,33 @@ def test_very_short_video(tmp_path, capsys, seconds):
     video = make_video(tmp_path / "짧은.mp4", seconds=seconds)
     res = _run(video, tmp_path / "out", capsys)
     assert Path(res["output"]).exists() and probe(Path(res["output"])).duration > 0.5
+
+
+def test_korean_windows_locale(tmp_path, monkeypatch, capsys):
+    """한국어 윈도우 + Python 3.13: 텍스트 모드 subprocess가 cp949로 읽는다. 작업 폴더(숏폼편집/원본영상)의 한글이
+    ffprobe·ffmpeg 출력에 UTF-8로 섞여 나와도 업로드·분석·내보내기가 깨지지 않아야 한다(실사용 신고: 모든 영상 '읽을 수 없음')."""
+    monkeypatch.setattr(subprocess, "_text_encoding", lambda: "cp949")
+    from autoedit import app as appmod
+    ws = tmp_path / "문서" / "숏폼편집"
+    monkeypatch.setattr(appmod.settings, "workspace", lambda: ws)
+    monkeypatch.setenv("AUTOEDIT_HOME", str(tmp_path / "home"))
+    src = make_video(tmp_path / "20251011_224848.mp4", seconds=6)
+    got = appmod.AppState().upload("20251011_224848.mp4", src.read_bytes())
+    assert got["duration"] > 5
+    video = ws / "원본영상" / got["id"]
+    assert probe(video).has_audio
+    r = _run(video, ws / "out", capsys)
+    out = Path(r["output"])
+    assert out.exists() and probe(out).duration > 1  # 분석(무음·장면 감지)·렌더·음량 측정까지 통과
+
+
+def test_upload_reports_reason(tmp_path, monkeypatch):
+    from autoedit import app as appmod
+    monkeypatch.setattr(appmod.settings, "workspace", lambda: tmp_path / "ws")
+    monkeypatch.setenv("AUTOEDIT_HOME", str(tmp_path / "home"))
+    with pytest.raises(ValueError, match="깨졌거나 다 받아지지"):
+        appmod.AppState().upload("a.mp4", b"\x00" * 4096)
+    assert not list((tmp_path / "ws" / "원본영상").glob("*"))
+    monkeypatch.setattr(appmod, "probe", lambda p: (_ for _ in ()).throw(FileNotFoundError("ffprobe")))
+    with pytest.raises(ValueError, match="ffprobe"):
+        appmod.AppState().upload("b.mp4", b"\x00")

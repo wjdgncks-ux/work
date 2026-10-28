@@ -5,6 +5,8 @@ rem 블록 안 echo 문구에는 괄호를 쓰지 않는다.
 (
 cd /d "%~dp0"
 set "PATH=%~dp0tools\ffmpeg\bin;%PATH%"
+rem 한글 폴더·파일 이름의 ffmpeg 출력을 UTF-8로 읽게 한다
+set "PYTHONUTF8=1"
 if not exist ".venv\Scripts\activate.bat" (
   echo 먼저 install-windows.bat 을 실행해 설치하세요.
   pause

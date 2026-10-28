@@ -68,7 +68,7 @@ def detect_silences(path: str, noise_db: float = -35.0, min_len: float = 0.35) -
     proc = subprocess.run(
         ["ffmpeg", "-hide_banner", "-nostdin", "-i", path, "-vn",
          "-af", f"silencedetect=noise={noise_db}dB:d={min_len}", "-f", "null", "-"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     starts = [float(x) for x in re.findall(r"silence_start: (-?[\d.]+)", proc.stderr)]
     ends = [float(x) for x in re.findall(r"silence_end: ([\d.]+)", proc.stderr)]
@@ -108,7 +108,7 @@ def detect_scenes(path: str, threshold: float = 0.32) -> list[float]:
     proc = subprocess.run(
         ["ffmpeg", "-hide_banner", "-nostdin", "-i", path, "-an",
          "-vf", f"scale=320:-2,select='gt(scene,{threshold})',showinfo", "-f", "null", "-"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return [round(float(x), 2) for x in re.findall(r"pts_time:([\d.]+)", proc.stderr)]
 

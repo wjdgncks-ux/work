@@ -243,7 +243,7 @@ def compose(plan: EditPlan, timeline: list[Piece], captions: list[Caption], anal
 
 def measure_lufs(path: Path) -> float | None:
     proc = subprocess.run(["ffmpeg", "-hide_banner", "-nostdin", "-i", str(path), "-vn",
-                           "-af", "ebur128", "-f", "null", "-"], capture_output=True, text=True)
+                           "-af", "ebur128", "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     m = re.findall(r"I:\s+(-?[\d.]+) LUFS", proc.stderr)
     return float(m[-1]) if m else None
 

@@ -222,7 +222,7 @@ def test_entry_point_routes_app_to_launcher(monkeypatch):
     code = ("import sys, runpy; from autoedit import launcher; "
             "launcher.supervise = lambda a: print('SUP', a, 'numpy' in sys.modules) or 0; "
             "sys.argv = ['autoedit', 'app', '--port', '9']; runpy.run_module('autoedit', run_name='__main__')")
-    out = subprocess.run([sys.executable, "-c", code], cwd=REPO, capture_output=True, text=True)
+    out = subprocess.run([sys.executable, "-c", code], cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert "SUP ['--port', '9'] False" in out.stdout, out.stderr
 
 
@@ -243,7 +243,7 @@ def test_real_processes_update_and_restart(tmp_path):
         port = s.getsockname()[1]
     env = {**os.environ, "AUTOEDIT_HOME": str(home)}
     proc = subprocess.Popen([sys.executable, "-m", "autoedit", "app", "--no-browser", "--port", str(port)], cwd=root, env=env,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
     base = f"http://127.0.0.1:{port}"
 
     def state():
