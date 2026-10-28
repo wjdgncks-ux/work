@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -153,6 +153,8 @@ def _keywords(analyses: list[Analysis], n: int = 6) -> list[str]:
 def plan_heuristic(analyses: list[Analysis], platform: Platform, brief: Brief,
                    style: Style | None = None) -> EditPlan:
     style = style or STYLES[brief.style]
+    # 화면을 보고 쓴 자막(kind=visual)은 말이 아니다: 대사 기준 클립 선택·후킹 문구 뽑기에 쓰지 않는다(말 없는 영상으로 처리)
+    analyses = [replace(a, transcript=None) if a.transcript and a.transcript.kind == "visual" else a for a in analyses]
     units: list[Unit] = []
     for a in analyses:
         med = float(np.median(a.energy_db)) if a.energy_db else -40.0

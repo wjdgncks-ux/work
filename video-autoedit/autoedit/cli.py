@@ -38,7 +38,7 @@ def cmd_run(args) -> int:
         profile=args.profile, style=args.style, platform=args.platform, mode=args.mode, out=Path(args.out),
         brief_path=args.brief, sponsored=args.sponsored, llm=args.llm, effort=args.effort, revise=args.revise,
         whisper=None if args.whisper == "none" else args.whisper, language=args.language,
-        reanalyze=args.reanalyze, plan_only=args.plan_only,
+        reanalyze=args.reanalyze, plan_only=args.plan_only, visual_captions=not args.no_visual_captions,
         reference=None if args.reference is None else ("" if args.reference == "none" else args.reference),
         brief={k: getattr(args, k) for k in ("topic", "audience", "goal", "industry", "cta", "hook")},
         render={k: getattr(args, k, None) for k in RENDER_KEYS},
@@ -176,6 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--industry", choices=["general", "beauty", "medical", "supplement", "local", "realestate", "saas"])
     r.add_argument("--sponsored", action="store_true", help="협찬/광고·이해관계 영상 → 유료광고 표기 강제")
     r.add_argument("--llm", choices=["auto", "on", "off"], default="auto")
+    r.add_argument("--no-visual-captions", action="store_true", help="말 없는 영상에 화면을 보고 자막 달기를 끈다")
     r.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"], default="high")
     r.add_argument("--revise", type=int, default=1, help="Claude 자가 수정 최대 횟수")
     r.add_argument("--whisper", default="small", help="faster-whisper 모델(tiny/base/small/medium/large-v3) 또는 none")

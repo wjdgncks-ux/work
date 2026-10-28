@@ -157,7 +157,15 @@ def build_captions(timeline: list[Piece], analyses: list[Analysis], max_chars: i
     caps: list[Caption] = []
     for p in timeline:
         tr = analyses[p.source].transcript
-        if not tr or p.speed != 1.0:  # 빨리감기 구간은 원음이 없으므로 자막도 없음
+        if not tr:
+            continue
+        if tr.kind == "visual":  # 화면 자막: 문장 단위로, 클립 경계에 걸쳐도 보이는 만큼, 빨리감기 구간에도 표시
+            for sent in tr.sentences:
+                words = [(p.to_out(max(w.start, p.start)), p.to_out(min(w.end, p.end)), w.text)
+                         for w in sent.words if w.end > p.start and w.start < p.end]
+                caps += _chunk([w for w in words if w[1] - w[0] > 0.05], max_chars, max_dur * 1.5)
+            continue
+        if p.speed != 1.0:  # 빨리감기 구간은 원음이 없으므로 대사 자막도 없음
             continue
         fill = filler_words(tr)
         words = [(p.out_start + max(w.start - p.start, 0), min(p.out_start + (w.end - p.start), p.out_end), w.text)

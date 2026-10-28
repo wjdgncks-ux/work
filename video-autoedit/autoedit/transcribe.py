@@ -27,6 +27,7 @@ class Sentence:
 class Transcript:
     language: str
     sentences: list[Sentence]
+    kind: str = "speech"  # speech=음성 인식(대사), visual=말 없는 영상에 화면을 보고 만든 자막(visual_captions.py)
 
     def words(self) -> list[Word]:
         return [w for s in self.sentences for w in s.words]
@@ -47,7 +48,7 @@ class Transcript:
                 span = (s["end"] - s["start"]) / max(len(toks), 1)
                 words = [Word(s["start"] + i * span, s["start"] + (i + 1) * span, t) for i, t in enumerate(toks)]
             sentences.append(Sentence(s["start"], s["end"], s["text"], words))
-        return cls(d.get("language", "ko"), sentences)
+        return cls(d.get("language", "ko"), sentences, d.get("kind", "speech"))
 
 
 def transcribe(path: str, model_size: str = "small", language: str = "ko") -> Transcript | None:

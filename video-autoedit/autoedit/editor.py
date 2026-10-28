@@ -261,7 +261,8 @@ class EditorState:
             new.append(Sentence(start, end, text, words))
         new.sort(key=lambda s: s.start)
         lang = a.transcript.language if a.transcript else "ko"
-        self.project.save_transcript(index, Transcript(lang, new))
+        kind = a.transcript.kind if a.transcript else "speech"  # 화면 자막을 고쳐도 화면 자막으로 남는다
+        self.project.save_transcript(index, Transcript(lang, new, kind))
 
     def stock_voices(self) -> dict:
         """엔진에 있는 목소리(내 목소리 목록에 이미 있는 것은 빼고) + 엔진별 설치 상태."""
@@ -319,6 +320,19 @@ class EditorState:
         if tr is None:
             raise ValueError("음성 인식 모델을 불러오지 못했습니다(첫 실행은 인터넷 연결 필요)")
         self.project.save_transcript(index, tr)
+
+    def visual_captions(self, index: int) -> str:
+        """이 원본의 화면을 보고 분위기에 맞는 자막을 만든다(말 없는 영상용). 결과 분위기 한 줄을 돌려준다."""
+        from . import visual_captions
+        if not _llm_ready():
+            raise ValueError("화면 보고 자막은 Claude 키가 있어야 합니다(시작 화면 → 설정·점검)")
+        a = self.project.analyses[index]
+        tr, res = visual_captions.generate(a, Path(self.project.meta["analysis_dirs"][index]), self.project.brief,
+                                           language=self.project.meta.get("language", "ko"))
+        if not tr:
+            raise ValueError("자막을 만들지 못했습니다(검은 창의 안내를 확인하세요)")
+        self.project.save_transcript(index, tr)
+        return res.mood
 
     def replan(self, style: str) -> None:
         """현재 원본 전체로 새 기획을 만들고, 무음 컷을 클립으로 확정한다."""
@@ -583,6 +597,9 @@ def make_handler(source):
                         status=data.get("status"), memo=data.get("memo"), done=data.get("done"))})
                 if path == "/api/reveal":
                     return self._json({"ok": reveal(st.project.pdir), "path": str(st.project.pdir)})
+                if path == "/api/viscaptions":
+                    mood = st.visual_captions(int(data["index"]))
+                    return self._json({**st.state(), "mood": mood})
                 if path == "/api/transcribe":
                     st.auto_captions(int(data["index"]))
                     return self._json(st.state())

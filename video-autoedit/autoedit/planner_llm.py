@@ -45,6 +45,10 @@ SNS 알고리즘(시청 지속·공유·저장)에 맞는 편집 기획서(EditP
    tone·sentence_style·cta_style·title_style을 hook_text·카드·CTA·제목·캡션에 맞춘다. rhythm(평균 컷 길이·쉼)에 맞춰 클립을 나눈다.
    레퍼런스의 문장을 그대로 옮기지 않는다(형식만). avoid 항목은 하지 않는다. 장르(style.guide)·규정(7)·사실(8)이 우선한다.
 
+10. '화면 자막'만 있는 원본은 말 없는 영상이다. 클립은 화면 변화·볼거리로 고르고, 화면 자막 한 개가 중간에 잘리지 않게
+   경계를 맞춘다(자막 시작~끝을 클립 안에). 화면 자막과 같은 문장을 hook_text·text_card로 반복하지 않는다.
+   무음 구간이 많아도 장면이 움직이면 살린다.
+
 시각 표기: 모든 t/start/end는 해당 원본(source)의 원본 기준 초. 출력 타임라인은 시스템이 계산한다.
 clips는 출력 순서대로 나열하고 총 길이는 target_seconds 범위(무음 컷으로 10~20% 줄어드는 것 감안)."""
 
@@ -77,7 +81,10 @@ def build_request(analyses: list[Analysis], platform: Platform, brief: Brief, as
                  f"음량 피크(s): {a.peaks[:40]}",
                  f"장면 전환(s): {a.scene_changes[:40]}",
                  f"무음 구간 수: {len(a.silences)}"]
-        if a.transcript:
+        if a.transcript and a.transcript.kind == "visual":
+            lines.append("화면 자막(말 없는 영상 — 화면을 보고 미리 쓴 자막, 대사 아님. 이미 영상에 표시됨):")
+            lines += [f"[{s.start:.2f}-{s.end:.2f}] {s.text}" for s in a.transcript.sentences]
+        elif a.transcript:
             lines.append("대사(타임코드):")
             lines += [f"[{s.start:.2f}-{s.end:.2f}] {s.text}" for s in a.transcript.sentences]
         else:

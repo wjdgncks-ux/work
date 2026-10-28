@@ -48,6 +48,7 @@ class RunOptions:
     plan_only: bool = False
     render: dict = field(default_factory=dict)     # font/reframe/assets/bgm… 덮어쓰기
     reference: str | None = None                    # 스타일 카드 id. None=채널 기본 카드, ""=쓰지 않음
+    visual_captions: bool = True                    # 말 없는 원본은 화면을 보고 자막(Claude 키 필요)
 
 
 def llm_available(mode: str) -> bool:
@@ -137,6 +138,28 @@ def resolve(opts: RunOptions) -> tuple[Profile | None, Brief, dict, list[Platfor
     return profile, brief, render_cfg, platforms
 
 
+def add_visual_captions(group: list[Path], analyses: list, root: Path, brief, opts: RunOptions, step) -> None:
+    """말 없는 원본에 화면을 보고 자막을 단다(이미 만든 화면 자막·사람이 고친 자막은 그대로 둔다)."""
+    from . import visual_captions
+    for v, a in zip(group, analyses):
+        if a.transcript and a.transcript.kind == "visual":
+            continue
+        speechless = visual_captions.is_speechless(a)
+        if speechless is None:
+            log(f"  · {v.name}: 음성 인식을 끄면 말이 있는지 알 수 없어 화면 자막을 만들지 않습니다"
+                "(편집기 '캡션' 탭의 '화면 보고 자막'으로 만들 수 있음)")
+            continue
+        if not speechless:
+            continue
+        step(f"{v.name} · 말 없는 영상 — 화면을 보고 자막 쓰는 중")
+        workdir = root / "_analysis" / v.stem
+        tr, res = visual_captions.generate(a, workdir, brief, language=opts.language, log=log)
+        if tr:
+            (workdir / "transcript.json").write_text(json.dumps(tr.to_dict(), ensure_ascii=False, indent=1), encoding="utf-8")
+            a.transcript = tr
+            log(f"  · {v.name}: 말 없는 영상 → 화면 자막 {len(tr.sentences)}개 (분위기: {res.mood})")
+
+
 def run_pipeline(videos: list[Path], opts: RunOptions, progress: Progress | None = None) -> list[dict]:
     """progress(설명, 0~1) 콜백으로 진행 상황을 알린다. 결과: 프로젝트별 요약 목록."""
     progress = progress or (lambda msg, frac: None)
@@ -167,6 +190,8 @@ def run_pipeline(videos: list[Path], opts: RunOptions, progress: Progress | None
         for a in analyses:
             log(f"  · {Path(a.path).name}: {a.duration:.1f}s, 대사 {len(a.transcript.sentences) if a.transcript else 0}문장, "
                 f"피크 {len(a.peaks)}, 장면전환 {len(a.scene_changes)}")
+        if opts.visual_captions:
+            add_visual_captions(group, analyses, root, brief, opts, lambda m: progress(m, done / steps))
         for platform, extras in heads:
             label = " + ".join(p.label for p in [platform, *extras])
             progress(f"{name} · {label} 편집 기획 중", done / steps)

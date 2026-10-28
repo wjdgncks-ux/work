@@ -392,13 +392,14 @@ function openNew() {
       <input id="topic" placeholder="주제 한 줄 — 예) 아침 루틴 3가지" value="${esc(cfg.topic)}" style="width:100%;margin-bottom:8px">
       <label class="ck"><input type="checkbox" id="spon" ${cfg.sponsored ? "checked" : ""}> 협찬·광고·회사 제품이 나옴 (유료광고 표시)</label>
       <label class="ck"><input type="checkbox" id="caps" ${cfg.captions ? "checked" : ""} ${H.settings.whisper_installed ? "" : "disabled"}> 영상 속 말로 자막 자동 생성 ${H.settings.whisper_installed ? `<span class="muted small">(영상 길이에 따라 몇 분)</span>` : `<span class="muted small">(설치 필요: 설정·점검)</span>`}</label>
+      <label class="ck"><input type="checkbox" id="viscap" ${cfg.visual_captions !== false ? "checked" : ""} ${H.settings.anthropic ? "" : "disabled"}> 말 없는 영상은 화면을 보고 분위기에 맞는 자막 달기 ${H.settings.anthropic ? `<span class="muted small">(Claude가 장면을 보고 작성 · 편집기에서 수정)</span>` : `<span class="muted small">(Claude 키 필요: 설정·점검)</span>`}</label>
       <label class="ck"><input type="checkbox" id="auto" ${cfg.auto_render ? "checked" : ""}> 편집기 없이 바로 완성본까지 만들기</label></div>
     <div class="foot"><button id="mCancel">취소</button><button class="accent" id="goBtn" disabled>자동 편집 시작</button></div>`;
   $("#modal").classList.add("on"); drawFiles();
 }
 function readCfg() {
   const m = document.querySelector("input[name=mode]:checked"); if (m) cfg.mode = m.value;
-  cfg.topic = $("#topic")?.value || ""; cfg.notes = $("#notes")?.value ?? cfg.notes ?? ""; cfg.sponsored = !!$("#spon")?.checked; cfg.captions = !!$("#caps")?.checked; cfg.auto_render = !!$("#auto")?.checked;
+  cfg.topic = $("#topic")?.value || ""; cfg.notes = $("#notes")?.value ?? cfg.notes ?? ""; cfg.sponsored = !!$("#spon")?.checked; cfg.captions = !!$("#caps")?.checked; cfg.auto_render = !!$("#auto")?.checked; cfg.visual_captions = $("#viscap") ? $("#viscap").checked : true;
   cfg.platforms = $$("[data-plat]").filter(c => c.checked).map(c => c.dataset.plat);
   readRef();
 }

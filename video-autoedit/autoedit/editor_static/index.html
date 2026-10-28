@@ -441,9 +441,12 @@ function renderLeft() {
   } else if (leftTab === "caption") {
     const tr = S.transcripts;
     P.innerHTML = `<div class="ph">캡션(자막)<span class="sp"></span><button class="accent" id="saveCaps">적용</button></div>
-      <p class="note">음성 인식으로 만든 자동 캡션입니다. 오타를 고치고 <b>적용</b>을 누르세요. 시각을 누르면 그 장면으로 이동합니다.</p>
+      <p class="note">음성 인식으로 만든 자동 캡션입니다. 오타를 고치고 <b>적용</b>을 누르세요. 시각을 누르면 그 장면으로 이동합니다.
+        말이 없는 영상은 <b>화면 보고 자막</b>으로 장면에 맞는 자막을 만들 수 있습니다.</p>
       ${S.sources.map(s => `<div class="sub">${s.index}: ${esc(s.name)} <button class="ghost" data-addsent="${s.index}">+ 문장</button>
-        <button class="ghost" data-autocap="${s.index}" ${S.voice.whisper ? "" : "disabled title='faster-whisper 설치 필요'"}>${ic("caption")} 자동 캡션</button></div>
+        <button class="ghost" data-autocap="${s.index}" ${S.voice.whisper ? "" : "disabled title='faster-whisper 설치 필요'"}>${ic("caption")} 자동 캡션</button>
+        <button class="ghost" data-viscap="${s.index}" ${S.meta.llm ? "" : "disabled title='Claude 키 필요(설정·점검)'"} title="말 없는 영상: 화면을 보고 분위기에 맞는 자막">화면 보고 자막</button>
+        ${tr[s.index]?.kind === "visual" ? `<span class="note" style="margin:0">· 화면 기반 자막</span>` : ""}</div>
         ${(tr[s.index]?.sentences || []).map((x, k) => `<div class="tile" data-sent="${s.index}:${k}" style="padding:6px">
           <a data-seeksrc="${s.index}:${x.start}" style="color:var(--accent);cursor:pointer;font-family:monospace">${x.start.toFixed(1)}</a>
           <input data-stext value="${esc(x.text)}" style="flex:1"><input type="hidden" data-sstart value="${x.start}"><input type="hidden" data-send value="${x.end}"></div>`).join("") || `<div class="note">대사 없음</div>`}`).join("")}`;
@@ -468,7 +471,7 @@ function diagList() {
 
 /* 소재 패널 동작 */
 $("#lpanel").addEventListener("click", async e => {
-  const t = e.target.closest("[data-add],[data-hear],[data-addsfx],[data-addtext],[data-pick],[data-addasset],[data-addfx],[data-style],[data-seeksrc],[data-addsent],[data-autocap],[data-where],#impMedia,#impAsset,#autofill,#transAll,#transNone,#saveCaps,#replan");
+  const t = e.target.closest("[data-add],[data-hear],[data-addsfx],[data-addtext],[data-pick],[data-addasset],[data-addfx],[data-style],[data-seeksrc],[data-addsent],[data-autocap],[data-viscap],[data-where],#impMedia,#impAsset,#autofill,#transAll,#transNone,#saveCaps,#replan");
   if (!t) return;
   const at = locate(playT);
   if (t.dataset.add !== undefined) {
@@ -489,6 +492,13 @@ $("#lpanel").addEventListener("click", async e => {
   else if (t.dataset.addsent !== undefined) { const si = +t.dataset.addsent, st = at && at.o.c.source === si ? r3(at.srcT) : 0;
     (S.transcripts[si] ||= {language: "ko", sentences: []}).sentences.push({start: st, end: r3(st + 2), text: "새 문장", words: []});
     S.transcripts[si].sentences.sort((a, b) => a.start - b.start); renderLeft(); }
+  else if (t.dataset.viscap !== undefined) {
+    const i = +t.dataset.viscap;
+    if (S.transcripts[i]?.sentences?.length && !confirm("기존 캡션을 화면을 보고 만든 자막으로 바꿀까요?")) return;
+    busy(true, "화면을 보고 자막을 쓰는 중… (30초~1분)");
+    try { const j = await api("/api/viscaptions", {index: i}); S.transcripts = j.transcripts; await runDiag(); renderLeft(); toast(`화면 자막을 만들었습니다 · 분위기: ${j.mood}`, 5000); }
+    catch (err) { toast(err.message, 8000); } finally { busy(false); }
+  }
   else if (t.dataset.autocap !== undefined) {
     const i = +t.dataset.autocap;
     if (S.transcripts[i]?.sentences?.length && !confirm("기존 캡션을 음성 인식 결과로 바꿀까요?")) return;

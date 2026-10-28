@@ -244,7 +244,7 @@ class AppState:
                 out=self.workspace, brief={"topic": d.get("topic", ""), "cta": d.get("cta", ""),
                                            "notes": str(d.get("notes") or "").strip()[:2000]},
                 sponsored=bool(d.get("sponsored")), whisper=self.whisper_model() if d.get("captions", True) else None,
-                plan_only=not d.get("auto_render"),
+                plan_only=not d.get("auto_render"), visual_captions=bool(d.get("visual_captions", True)),
             )
             self.job = {"state": "running", "step": "준비 중", "progress": 0.0, "started": time.time()}
 

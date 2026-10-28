@@ -49,7 +49,7 @@ def filler_words(tr: Transcript | None) -> set[tuple[float, float, str]]:
 
 def filler_spans(tr: Transcript | None) -> list[tuple[float, float]]:
     """잘라낼 구간: 이어진 군말 덩어리 + 앞뒤 쉼(최대 REACH)까지. 다음 말과 겹치지 않는다."""
-    if not tr:
+    if not tr or tr.kind == "visual":  # 화면을 보고 쓴 자막은 말이 아니므로 군말 컷 대상이 아님
         return []
     words = tr.words()
     fill = filler_words(tr)
