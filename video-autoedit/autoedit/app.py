@@ -24,14 +24,14 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import doctor, gdrive, housekeeping, reference, settings, updater, voice
+from . import bgm, doctor, gdrive, housekeeping, reference, settings, updater, voice
 from .editor import STATIC, EditorState, _whisper_available, make_handler
 from .media import FFmpegError, probe
 from .osutil import reveal
 from .pipeline import RunOptions, run_pipeline
 from .platforms import PLATFORMS
 from .profiles import delete_profile, list_profiles, load_profile, save_profile
-from .project import REVIEW_STATES
+from .project import REVIEW_STATES, group_name
 from .styles import STYLES
 
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
@@ -138,7 +138,7 @@ class AppState:
                 cover = versions[-1]["cover"]
             elif (pdir / "preview.cover.jpg").exists():
                 cover = "preview.cover.jpg"
-            name = Path(meta["sources"][0]).stem if len(meta["sources"]) == 1 else "merged"
+            name = group_name(meta["sources"])
             prof = meta.get("profile")
             brief = meta.get("brief") or {}
             entry = {
@@ -184,6 +184,7 @@ class AppState:
                          "auto_slim_days": self.auto_slim_days(), "low_disk_gb": self.low_disk_gb()},
             "disk": self.disk_state(),
             "auto_slim": self.auto_result,
+            "bgm_count": len(bgm.tracks(self.workspace)),
             "style_cards": [{"id": c.id, "name": c.name, "samples": c.samples, "analyzed": bool(c.analysis)}
                             for c in reference.list_cards()],
             "channel_styles": cfg.get("channel_styles") or {},
@@ -245,6 +246,7 @@ class AppState:
                                            "notes": str(d.get("notes") or "").strip()[:2000]},
                 sponsored=bool(d.get("sponsored")), whisper=self.whisper_model() if d.get("captions", True) else None,
                 plan_only=not d.get("auto_render"), visual_captions=bool(d.get("visual_captions", True)),
+                auto_bgm=bool(d.get("auto_bgm", True)),
             )
             self.job = {"state": "running", "step": "준비 중", "progress": 0.0, "started": time.time()}
 
@@ -269,7 +271,8 @@ class AppState:
                 results = run_pipeline(files, opts, report)
                 ids = [Path(r["project"]).resolve().relative_to(self.workspace.resolve()).as_posix() for r in results]
                 self.job = {"state": "done", "projects": ids, "progress": 1.0,
-                            "elapsed": round(time.time() - self.job["started"], 1)}
+                            "elapsed": round(time.time() - self.job["started"], 1),
+                            "ai": all(str(r.get("planner", "")).startswith("Claude") for r in results)}
                 if self.disk_state().get("low"):  # 새 영상으로 공간이 모자라졌으면 바로 정리
                     threading.Thread(target=self.auto_slim, daemon=True).start()
             except Exception as exc:  # 사용자에게 그대로 보여 준다
@@ -481,7 +484,7 @@ class AppState:
                             info = probe(path)
                         except Exception as exc:
                             raise ValueError(probe_reason(exc)) from exc
-                        row.update(done=True, progress=1.0, id=path.name, reused=reused,
+                        row.update(done=True, progress=1.0, id=path.name, reused=reused, duration=round(info.duration, 1),
                                    info=f"{round(info.duration, 1)}초 · {info.display_size[0]}x{info.display_size[1]}"
                                         + (" · 이미 받아 둔 파일" if reused else ""))
                     except (gdrive.DriveError, ValueError) as exc:

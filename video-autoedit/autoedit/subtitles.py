@@ -85,6 +85,7 @@ Style: Caption,{font},{caption_style}
 Style: Hook,{font},{round(base * 1.35)},&H00FFFFFF,&H00FFFFFF,&H00111111,&H00111111,1,0,0,0,100,100,0,0,3,{round(base * 0.35)},0,8,{side},{side},{hook_margin},1
 Style: Card,{font},{round(base * 1.2)},&H00111111,&H00111111,{color.rstrip("&")},{color.rstrip("&")},1,0,0,0,100,100,0,0,3,{round(base * 0.45)},0,5,{side},{side},0,1
 Style: CTA,{font},{round(base * 1.1)},&H00FFFFFF,&H00FFFFFF,&H00E06A2A,&H00E06A2A,1,0,0,0,100,100,0,0,3,{round(base * 0.4)},0,2,{side},{side},{round(H * (platform.safe_bottom + 0.22))},1
+Style: Fun,{font},{round(base * 1.3)},{color.rstrip("&")},&H00FFFFFF,&H00111111,&H80000000,1,0,0,0,100,100,0,0,1,{round(base * 0.16)},{round(base * 0.06)},8,{side},{side},{round(H * (platform.safe_top + 0.14))},1
 Style: Handle,{font},{round(base * 0.5)},&H60FFFFFF,&H60FFFFFF,&H90000000,&H00000000,1,0,0,0,100,100,0,0,1,2,0,9,{side},{side},{round(H * platform.safe_top)},1
 Style: Badge,{font},{round(base * 0.55)},&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,1,0,0,0,100,100,0,0,3,{round(base * 0.2)},0,7,{side},{side},{round(H * platform.safe_top)},1
 
@@ -97,10 +98,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         kws = [kw for t, kw in emphasis_marks if c.start - 0.3 <= t <= c.end + 0.3]
         lines.append(f"Dialogue: 1,{_ts(c.start)},{_ts(c.end)},Caption,,0,0,0,,{pop_in}{_highlight(c.text, kws, color)}")
     card_y = round(H * 0.38)
+    fun_n = 0
     for o in overlays:
         text = _esc(o.text)
         if o.style == "Card":
             text = f"{{\\pos({W // 2},{card_y})\\fad(120,120)}}{pop_in}{text}"
+        elif o.style == "Fun":  # 톡 튀어나오며 살짝 기울어짐(번갈아 좌우)
+            fun_n += 1
+            tilt = -3 if fun_n % 2 else 3
+            text = (f"{{\\fad(40,120)\\frz{tilt}\\fscx40\\fscy40\\t(0,110,\\fscx118\\fscy118)"
+                    f"\\t(110,200,\\fscx100\\fscy100)}}{text}")
         elif o.style in ("Hook", "CTA"):
             text = f"{{\\fad(80,150)}}{pop_in}{text}"
         layer = 3 if o.style in ("Badge", "Handle") else 2

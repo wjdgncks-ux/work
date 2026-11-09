@@ -125,6 +125,12 @@ def _overlays(plan: EditPlan, timeline: list[Piece], dur: float, handle: str = "
     for a, b in zip(cards, cards[1:]):  # 카드가 겹치면 나중 카드가 이어받는다(같은 자리에 겹쳐 찍히지 않게)
         a.end = min(a.end, b.start)
     out += [c for c in cards if c.end - c.start > 0.05]
+    funs = sorted((Overlay(t, min(t + ins.duration, dur), ins.text, "Fun")
+                   for ins in plan.inserts if ins.kind == "fun_text" and ins.text
+                   and (t := map_time(timeline, ins.source, ins.t)) is not None), key=lambda o: o.start)
+    for a, b in zip(funs, funs[1:]):
+        a.end = min(a.end, b.start)
+    out += [f for f in funs if f.end - f.start > 0.05]
     if plan.cta_text:
         out.append(Overlay(max(dur - 3.0, 0), dur, plan.cta_text, "CTA"))
     labels = []
@@ -163,6 +169,8 @@ def compose(plan: EditPlan, timeline: list[Piece], captions: list[Caption], anal
         d = min(ins.duration, dur - t)
         if d <= 0.2:
             continue
+        if ins.kind == "fun_text":
+            continue  # 예능 자막은 자막 파일(ASS)로만 그린다
         if ins.kind == "text_card":
             vchain.append(f"{cur}drawbox=x=0:y=ih*0.30:w=iw:h=ih*0.16:color=black@0.45:t=fill"
                           f":enable='between(t,{t:.3f},{t + d:.3f})'[vb{k}]")

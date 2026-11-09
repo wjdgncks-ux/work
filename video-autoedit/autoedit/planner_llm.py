@@ -49,6 +49,17 @@ SNS 알고리즘(시청 지속·공유·저장)에 맞는 편집 기획서(EditP
    경계를 맞춘다(자막 시작~끝을 클립 안에). 화면 자막과 같은 문장을 hook_text·text_card로 반복하지 않는다.
    무음 구간이 많아도 장면이 움직이면 살린다.
 
+11. 장면 시트(원본마다 약 1초 간격 프레임 격자)와 '움직임이 큰 순간'을 보고 볼거리를 찾는다: 반응·표정·결정적 동작·
+   웃긴 실수·귀여운 순간. 대사가 적은 영상(반려동물·브이로그·시연)은 대사가 아니라 이 볼거리로 클립을 고른다.
+   원본이 여러 개면 각 원본에서 가장 좋은 구간만 골라 한 편의 이야기(후킹=가장 강한 순간 → 전개 → 마무리)로 잇고,
+   볼거리 없는 원본·구간은 과감히 뺀다. 같은 장면이 반복되면 가장 좋은 한 번만 쓴다.
+12. 예능 자막(inserts kind=fun_text): 유머형이거나 볼거리 중심 영상이면 반응 순간마다 2~4초 간격으로 넣는다
+   (한 개 12자 이내·1~2초, 상황 한마디·속마음은 괄호·의성어, 예: "(당황)", "냥냥펀치 발사", "갑자기?").
+   화면에 보이는 것만 근거로 하고 대사·화면 자막과 같은 말을 반복하지 않는다. 설명형은 꼭 필요한 곳에만.
+   text_card(핵심 문구 카드)는 최대 3개 그대로.
+13. 배경음악(bgm): 편집 조건 bgm_files(파일·분위기 폴더) 중 영상 분위기·장르에 맞는 곡 하나를 고른다. 목록이 비었으면 빈 문자열.
+   편집 요청이 음악을 빼라고 하면 빈 문자열.
+
 시각 표기: 모든 t/start/end는 해당 원본(source)의 원본 기준 초. 출력 타임라인은 시스템이 계산한다.
 clips는 출력 순서대로 나열하고 총 길이는 target_seconds 범위(무음 컷으로 10~20% 줄어드는 것 감안)."""
 
@@ -58,7 +69,9 @@ def _image_block(path: str) -> dict:
     return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}}
 
 
-def build_request(analyses: list[Analysis], platform: Platform, brief: Brief, assets: list[str]) -> list[dict]:
+def build_request(analyses: list[Analysis], platform: Platform, brief: Brief, assets: list[str],
+                  bgm_files: list[dict] | None = None) -> list[dict]:
+    from . import scenesheet
     content: list[dict] = []
     style = STYLES[brief.style]
     ctx = {
@@ -71,10 +84,12 @@ def build_request(analyses: list[Analysis], platform: Platform, brief: Brief, as
         "style": {"key": style.key, "label": style.label, "guide": style.llm_guide, "sfx": style.sfx,
                   "target_seconds": [round(x * style.length_mult) for x in platform.target_seconds]},
         "asset_files": assets,
+        "bgm_files": bgm_files or [],
     }
     if brief.reference:
         ctx["reference_style"] = brief.reference.for_prompt()
     content.append({"type": "text", "text": "## 편집 조건\n" + json.dumps(ctx, ensure_ascii=False, indent=1)})
+    step = scenesheet.step_for(analyses)
     for a in analyses:
         lines = [f"## 원본 {a.index}: {Path(a.path).name}",
                  f"길이 {a.duration:.1f}s, {a.info.display_size[0]}x{a.info.display_size[1]}, 오디오 {'있음' if a.info.has_audio else '없음'}",
@@ -90,9 +105,23 @@ def build_request(analyses: list[Analysis], platform: Platform, brief: Brief, as
         else:
             lines.append("대사: 없음(음성 인식 불가) — 프레임과 음량으로 판단")
         content.append({"type": "text", "text": "\n".join(lines)})
-        for t, fp in a.frames:
-            content.append({"type": "text", "text": f"원본 {a.index} 프레임 @ {t:.1f}s"})
-            content.append(_image_block(fp))
+        try:
+            peaks = scenesheet.motion_peaks(scenesheet.motion(a))
+            sheets = scenesheet.sheets(a, step)
+        except Exception as exc:  # 시트를 못 만들면 예전처럼 프레임 몇 장만
+            print(f"  · 장면 시트 생성 실패({exc}) → 프레임 {len(a.frames)}장으로 기획", file=sys.stderr)
+            peaks, sheets = [], []
+        if peaks:
+            content.append({"type": "text", "text": f"원본 {a.index} 움직임이 큰 순간(s): {peaks}"})
+        if sheets:
+            for t0, fp in sheets:
+                content.append({"type": "text", "text": f"원본 {a.index} 장면 시트: {t0:.0f}s부터 {step:g}초 간격, "
+                                f"{scenesheet.COLS}×{scenesheet.ROWS}칸(왼쪽 위→오른쪽, 다음 줄). 영상이 끝나면 검은 칸"})
+                content.append(_image_block(str(fp)))
+        else:
+            for t, fp in a.frames:
+                content.append({"type": "text", "text": f"원본 {a.index} 프레임 @ {t:.1f}s"})
+                content.append(_image_block(fp))
     content.append({"type": "text", "text": "위 원본으로 EditPlan을 작성하라."})
     return [{"role": "user", "content": content}]
 
@@ -138,7 +167,7 @@ def _call(client, messages: list[dict], effort: str) -> EditPlan | None:
 
 
 def plan_llm(analyses: list[Analysis], platform: Platform, brief: Brief, assets: list[str],
-             effort: str = "high") -> tuple[EditPlan | None, list[dict]]:
+             effort: str = "high", bgm_files: list[dict] | None = None) -> tuple[EditPlan | None, list[dict]]:
     """(기획서, 대화 기록) 반환. 대화 기록은 revise_llm에 그대로 이어 붙인다."""
     try:
         import anthropic
@@ -146,7 +175,7 @@ def plan_llm(analyses: list[Analysis], platform: Platform, brief: Brief, assets:
         print("  · anthropic 미설치 → 규칙 기반 기획 (pip install anthropic)", file=sys.stderr)
         return None, []
     client = anthropic.Anthropic()
-    messages = build_request(analyses, platform, brief, assets)
+    messages = build_request(analyses, platform, brief, assets, bgm_files)
     plan = _call(client, messages, effort)
     if plan:
         plan.platform = platform.key

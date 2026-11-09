@@ -77,6 +77,14 @@ SFX_LABEL = {"whoosh": "휙(전환)", "pop": "뽁(강조)", "ding": "띵(정답�
 THUMB_H = 64
 
 
+def _bgm_tracks() -> list[dict]:
+    from . import bgm, settings
+    try:
+        return bgm.tracks(settings.workspace())
+    except OSError:
+        return []
+
+
 def _channel_name(key: str | None) -> str | None:
     """편집기 머리말에 채널 key 대신 이름(이름을 바꿨거나 지운 채널이면 key 그대로)."""
     if not key:
@@ -204,6 +212,7 @@ class EditorState:
                 "brief": pr.meta["brief"], "reframe": rc.get("reframe") or "auto",
                 "highlight": rc.get("highlight") or "#FFE500", "handle": rc.get("handle") or "",
                 "bgm": Path(rc["bgm"]).name if rc.get("bgm") else "", "llm": _llm_ready(),
+                "bgm_tracks": _bgm_tracks(),
                 "style_cards": [{"id": c.id, "name": c.name, "samples": c.samples} for c in reference.list_cards()],
                 "reference_warnings": pr.brief.reference.warnings() if pr.brief.reference else [],
             },
@@ -339,17 +348,24 @@ class EditorState:
         pr = self.project
         pr.set_style(style)
         brief = pr.brief
-        plan = None
+        from . import bgm, settings
+        ws = settings.workspace()
+        old_bgm = pr.load_plan().bgm if (pr.pdir / "plan.json").exists() else ""
+        plan, by_llm = None, False
         if _llm_ready():
             from .planner_llm import plan_llm
-            plan, _ = plan_llm(pr.analyses, pr.platform, brief, self.assets())
+            plan, _ = plan_llm(pr.analyses, pr.platform, brief, self.assets(), bgm_files=bgm.tracks(ws))
+            by_llm = plan is not None
         if plan is None:
             plan = plan_heuristic(pr.analyses, pr.platform, brief)
             attach_assets(plan, pr.analyses, self._path("assets"))
+        if not plan.bgm and old_bgm and not by_llm:
+            plan.bgm = old_bgm  # 규칙 기반으로 다시 짜도 고른 음악은 유지
+        bgm.settle(plan, ws, style, "|".join(Path(a.path).name for a in pr.analyses), from_llm=by_llm)
         finalize(plan, pr.analyses, pr.platform, brief, auto_pace=True)
         pr.save_plan(plan)
         pr.meta["baked"] = False
-        pr.meta["planner"] = ("Claude" if _llm_ready() else "규칙 기반") + f" 재편집({STYLES[style].label})"
+        pr.meta["planner"] = ("Claude" if by_llm else "규칙 기반") + f" 재편집({STYLES[style].label})"
         pr.bake()
 
     def set_reference(self, d: dict) -> None:

@@ -91,6 +91,7 @@ aside,#player{min-height:0;border-right:1px solid var(--line);background:var(--p
 .ov-cap span{color:#fff;-webkit-text-stroke:calc(var(--u)*0.35) #000;paint-order:stroke fill;text-shadow:0 calc(var(--u)*.3) calc(var(--u)*.6) #000a}
 .ov-hook span{background:#111;color:#fff}
 .ov-card span{color:#111}
+.ov-fun span{font-weight:900;-webkit-text-stroke:calc(var(--u)*0.45) #111;paint-order:stroke fill;text-shadow:0 calc(var(--u)*.4) 0 #0008}
 .ov-band{position:absolute;left:0;right:0;top:30%;height:16%;background:#00000073}
 .ov-cta span{background:#2a6ae0;color:#fff}
 .ov-badge{position:absolute;padding:.1em .35em;background:#00000080;color:#fff;font-weight:700;border-radius:.2em}
@@ -381,7 +382,8 @@ async function load(keepT = 0) {
   S = await api("/api/state");
   plan = S.plan; diag = S.diagnosis; FPS = S.meta.platform.fps || 30;
   S.sources.forEach(s => { if (!sprites[s.index]) { const im = new Image(); im.src = s.thumbs.url; sprites[s.index] = im; } });
-  $("#pname").innerHTML = `<b>${esc(S.meta.name)}</b> · ${Object.values(S.platform_labels).map(esc).join(" + ")}${S.meta.profile ? " · " + esc(S.meta.profile) : ""}`;
+  $("#pname").innerHTML = `<b>${esc(S.meta.name)}</b> · ${Object.values(S.platform_labels).map(esc).join(" + ")}${S.meta.profile ? " · " + esc(S.meta.profile) : ""}`
+    + (/^규칙/.test(S.meta.planner || "") ? ` · <span style="color:#ffb35c" title="Claude 키가 없거나 AI 요청이 실패해 규칙으로만 편집했습니다. 설정에서 키를 넣고 'AI 편집 → 다시 편집'을 누르세요">AI 미사용(규칙 기반)</span>` : "");
   $("#ratioChip").textContent = `${S.meta.platform.width > S.meta.platform.height ? "16:9" : "9:16"} · ${S.meta.platform.width}×${S.meta.platform.height}`;
   $("#homeBtn").style.display = S.app ? "" : "none"; renderStatus();
   relayout(); fitZoom(); setDirty(false);
@@ -411,11 +413,16 @@ function renderLeft() {
   } else if (leftTab === "audio") {
     P.innerHTML = `<div class="ph">효과음</div>${S.sfx.map(x => `<div class="tile"><div class="tt">${esc(x.label)}<small>${x.kind} · ${x.len}s</small></div>
       <button data-hear="${x.kind}" title="미리 듣기">${ic("vol")}</button><button data-addsfx="${x.kind}" title="재생 위치에 추가">${ic("plus")}</button></div>`).join("")}
-      <div class="sub">배경음악</div><div class="note">${S.meta.bgm ? `프로필 BGM: <b>${esc(S.meta.bgm)}</b> — 내보내기 때 목소리에 맞춰 자동으로 줄어듭니다.` : "BGM 없음. 채널 프로필의 render.bgm 에 사용권 있는 음원을 지정하세요."}</div>`;
+      <div class="sub">배경음악</div>
+      ${(S.meta.bgm_tracks || []).length ? `<select id="bgmSel" style="width:100%"><option value="">없음${S.meta.bgm ? ` (채널 기본: ${esc(S.meta.bgm)})` : ""}</option>
+        ${S.meta.bgm_tracks.map(t => `<option value="${esc(t.file)}" ${plan.bgm === t.file ? "selected" : ""}>${esc(t.mood ? `[${t.mood}] ` : "")}${esc(t.file.split("/").pop())}</option>`).join("")}</select>
+        <div class="note">내보낼 때 깔립니다(편집기 미리보기에는 안 들림). 말소리가 나오면 자동으로 작아지고, 말 없는 영상은 조금 크게 들어갑니다.</div>`
+      : `<div class="note">배경음악 폴더가 비어 있습니다. 작업 폴더의 <b>배경음악</b> 폴더에 사용권이 확인된 음원(mp3 등)을 넣으면 자동 편집이 분위기에 맞는 곡을 고릅니다. 분위기별 하위 폴더(신나는·잔잔한·귀여운…)를 만들면 더 잘 고릅니다.</div>`}`;
   } else if (leftTab === "text") {
     P.innerHTML = `<div class="ph">텍스트</div>
       <div class="grid">
         <div class="card" data-addtext="basic"><div class="textcard" style="background:#2b2b31">기본 텍스트</div><div class="nm">핵심 문구 카드</div><button class="add">+</button></div>
+        <div class="card" data-addtext="fun"><div class="textcard" style="background:#111;color:${S.meta.highlight};font-weight:900;transform:rotate(-3deg)">(당황)</div><div class="nm">예능 자막</div><button class="add">+</button></div>
         <div class="card" data-addtext="step"><div class="textcard" style="background:${S.meta.highlight};color:#111">STEP 1</div><div class="nm">단계 카드</div><button class="add">+</button></div>
         <div class="card" data-pick="hook"><div class="textcard" style="background:#111">후킹 타이틀</div><div class="nm">첫 3초 상단 문구</div></div>
         <div class="card" data-pick="cta"><div class="textcard" style="background:#2a6ae0">CTA</div><div class="nm">마지막 3초 문구</div></div>
@@ -482,7 +489,8 @@ $("#lpanel").addEventListener("click", async e => {
   else if (t.dataset.addsfx) { if (!at) return; mutate(() => plan.sfx.push({source: at.o.c.source, t: r3(at.srcT), kind: t.dataset.addsfx})); select({type: "sfx", i: plan.sfx.length - 1}); playSfx(t.dataset.addsfx); }
   else if (t.dataset.addtext) {
     if (!at) return; const n = plan.inserts.filter(x => /^STEP \d/.test(x.text)).length + 1;
-    mutate(() => plan.inserts.push({source: at.o.c.source, t: r3(at.srcT), duration: 2, kind: "text_card", text: t.dataset.addtext === "step" ? `STEP ${n}` : "핵심 문구", asset: ""}));
+    const fun = t.dataset.addtext === "fun";
+    mutate(() => plan.inserts.push({source: at.o.c.source, t: r3(at.srcT), duration: fun ? 1.5 : 2, kind: fun ? "fun_text" : "text_card", text: fun ? "(당황)" : t.dataset.addtext === "step" ? `STEP ${n}` : "핵심 문구", asset: ""}));
     select({type: "ins", i: plan.inserts.length - 1});
   } else if (t.dataset.pick) select({type: t.dataset.pick});
   else if (t.dataset.addasset) { if (!at) return; mutate(() => plan.inserts.push({source: at.o.c.source, t: r3(at.srcT), duration: 2, kind: "asset", text: "", asset: t.dataset.addasset})); select({type: "ins", i: plan.inserts.length - 1}); }
@@ -588,6 +596,7 @@ $("#lpanel").addEventListener("input", e => {
   else if (e.target.id === "cloneConsent") cloneForm.consent = e.target.checked;
 });
 $("#lpanel").addEventListener("change", async e => {
+  if (e.target.id === "bgmSel") return mutate(() => plan.bgm = e.target.value);
   if (e.target.id === "cloneConsent") cloneForm.consent = e.target.checked;
   if (e.target.id === "vsModel") {
     const m = S.voice.models.find(x => x.id === e.target.value);
@@ -771,10 +780,10 @@ function activeAt(T) {
   const items = [], m = S.meta, H = hookEnd();
   if (plan.hook_text && T < H) items.push({k: "hook", text: plan.hook_text});
   if (plan.cta_text && T >= L.total - 3) items.push({k: "cta", text: plan.cta_text});
-  const act = {card: null, asset: null};   // 같은 종류가 겹치면 나중에 시작한 것만(내보내기와 동일)
-  plan.inserts.forEach((x, i) => { const t = mapTime(x.source, x.t), k = x.kind === "asset" ? "asset" : "card";
+  const act = {card: null, asset: null, fun: null};   // 같은 종류가 겹치면 나중에 시작한 것만(내보내기와 동일)
+  plan.inserts.forEach((x, i) => { const t = mapTime(x.source, x.t), k = x.kind === "asset" ? "asset" : x.kind === "fun_text" ? "fun" : "card";
     if (t != null && T >= t && T < t + x.duration && (!act[k] || t >= act[k].t)) act[k] = {k, text: x.text, asset: x.asset, i, t}; });
-  if (act.asset) items.push(act.asset); if (act.card) items.push(act.card);
+  if (act.asset) items.push(act.asset); if (act.card) items.push(act.card); if (act.fun) items.push(act.fun);
   const cap = (diag?.captions || []).find(c => T >= c.start && T < c.end);
   if (cap) { const kws = plan.emphases.filter(e => e.keyword && (() => { const t = mapTime(e.source, e.t); return t != null && t >= cap.start - .3 && t <= cap.end + .3; })()).map(e => e.keyword); items.push({k: "cap", text: cap.text, kws}); }
   const labels = []; if (plan.sponsored) labels.push("유료광고"); if (plan.ai_voice_label && narSpans().length) labels.push("AI 음성");
@@ -803,6 +812,7 @@ function renderOverlay(force) {
     if (it.k === "hook") return `<div class="o ov-hook" style="top:${(P.safe_top + .04) * 100}%;font-size:calc(${base}*1.35)"><span>${esc(it.text)}</span></div>`;
     if (it.k === "cta") return `<div class="o ov-cta" style="bottom:${(P.safe_bottom + .22) * 100}%;font-size:calc(${base}*1.1)"><span>${esc(it.text)}</span></div>`;
     if (it.k === "card") return `<div class="ov-band"></div><div class="o ov-card" style="top:38%;transform:translateY(-50%);font-size:calc(${base}*1.2)"><span style="background:${hl}">${esc(it.text)}</span></div>`;
+    if (it.k === "fun") return `<div class="o ov-fun" style="top:${(P.safe_top + .14) * 100}%;font-size:calc(${base}*1.3);transform:rotate(${it.i % 2 ? 3 : -3}deg)"><span style="color:${hl}">${esc(it.text)}</span></div>`;
     if (it.k === "asset") return `<div class="ov-asset" style="top:${(P.safe_top + .06) * 100}%;height:40%">${/\.(mp4|mov)$/i.test(it.asset) ? `<video src="/media/asset/${encodeURIComponent(it.asset)}" muted autoplay loop></video>` : `<img src="/media/asset/${encodeURIComponent(it.asset)}">`}</div>`;
     if (it.k === "cap") return `<div class="o ov-cap ${look ? esc(look.background) : ""}" style="${capPos};font-size:calc(${base}*${capSize})"><span${look ? ` style="color:${esc(look.text_color)}"` : ""}>${hlText(it.text, it.kws)}</span></div>`;
     if (it.k === "badge") return `<div class="ov-badge" style="left:7%;top:${P.safe_top * 100}%;font-size:calc(${base}*.55)">${esc(it.text)}</div>`;

@@ -15,7 +15,7 @@ from .stylecard import StyleCard
 
 SfxKind = Literal["whoosh", "pop", "ding", "boom", "boing", "riser"]
 EmphasisKind = Literal["zoom_punch", "flash"]
-InsertKind = Literal["text_card", "asset"]
+InsertKind = Literal["text_card", "asset", "fun_text"]
 ClipRole = Literal["hook", "body", "cta"]
 
 
@@ -45,7 +45,8 @@ class Insert(BaseModel):
     source: int
     t: float = Field(description="자료화면이 시작될 원본 기준 시각")
     duration: float
-    kind: InsertKind = Field(description="text_card=핵심 문구 카드, asset=자료 이미지/영상")
+    kind: InsertKind = Field(description="text_card=핵심 문구 카드, asset=자료 이미지/영상, "
+                                         "fun_text=예능 자막(장면 반응 한마디·속마음·의성어, 화면 위쪽에 톡 튀어나옴)")
     text: str = Field(description="카드에 들어갈 짧은 문구(15자 이내 권장)")
     asset: str = Field(description="asset일 때 자료 폴더의 파일명. 없으면 빈 문자열")
 
@@ -89,6 +90,7 @@ class EditPlan(BaseModel):
     rationale: str = Field(description="편집 의도 요약(3문장 이내)")
     risk_notes: list[str] = Field(description="과장·규제·사실 검증이 필요한 표현 목록")
     narrations: list[Narration] = Field(default_factory=list, description="편집기에서 음성 생성 후 채움. 기획 단계에서는 빈 목록")
+    bgm: str = Field(default="", description="배경음악: 편집 조건 bgm_files 중 분위기에 맞는 file. 목록이 비었거나 음악이 어울리지 않으면 빈 문자열")
     ai_voice_label: bool = Field(default=True, description="AI 음성이 있으면 화면에 'AI 음성' 표시(AI 기본법 생성물 표시)")
 
 

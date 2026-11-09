@@ -50,6 +50,12 @@ def record_version(pdir: Path, meta: dict, info: dict, score: int) -> dict:
     return entry
 
 
+def group_name(sources) -> str:
+    """프로젝트 이름: 원본 하나면 그 파일 이름, 여러 개를 한 편으로 묶었으면 '첫 파일 외 N개'."""
+    first = Path(sources[0]).stem
+    return first if len(sources) == 1 else f"{first} 외 {len(sources) - 1}개"
+
+
 def finalize(plan: EditPlan, analyses: list[Analysis], platform: Platform, brief: Brief,
              *, auto_pace: bool = True, manual: bool = False) -> tuple[Scorecard, list[Piece], list[Caption]]:
     """검증·보정 → 타임라인·자막 → 진단. auto_pace=False면 사람이 넣은 강조를 건드리지 않는다.
@@ -108,7 +114,7 @@ class Project:
 
     @property
     def name(self) -> str:
-        return Path(self.meta["sources"][0]).stem if len(self.meta["sources"]) == 1 else "merged"
+        return group_name(self.meta["sources"])
 
     @property
     def plan_path(self) -> Path:
@@ -241,6 +247,15 @@ class Project:
         """같은 편집으로 함께 내보낼 다른 세로 플랫폼(예: Reels 프로젝트의 TikTok 파일)."""
         return [get_platforms(k)[0] for k in (self.meta.get("platforms") or [])[1:]]
 
+    def _apply_bgm(self, plan: EditPlan, opts) -> None:
+        from . import bgm, settings
+        path = bgm.resolve(settings.workspace(), plan.bgm)
+        if path:
+            opts.bgm = path
+        if opts.bgm and not any(a.transcript and a.transcript.kind == "speech" and a.transcript.words()
+                                for a in self.analyses):
+            opts.bgm_db = max(opts.bgm_db, -12.0)  # 말이 없으면 음악이 주인공: 조금 더 크게
+
     def render(self, plan: EditPlan, *, preview: bool = False, planner_suffix: str = "", progress=None,
                creator: str = "") -> tuple[dict, Scorecard]:
         """미리보기는 preview.mp4를 덮어쓰고, 최종본은 v번호를 올려 새 파일로 남기며 검수표·업로드 문구를 만든다.
@@ -248,6 +263,7 @@ class Project:
         card, timeline, captions = self.finalize(plan)
         self.save_plan(plan)  # 실제 렌더링한 보정본으로 갱신
         opts = render_options(self.meta.get("render", {}), self.style, preview=preview, reference=self.brief.reference)
+        self._apply_bgm(plan, opts)
         extras = [] if preview else self.extra_platforms
         parts = 1 + 0.3 * len(extras)  # 추가 플랫폼은 본편을 재사용해 자막 합성만 → 약 30% 시간
         report = progress or (lambda f: None)

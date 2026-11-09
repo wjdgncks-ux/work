@@ -104,7 +104,7 @@ def test_llm_call_handles_refusal_and_success(analysis, monkeypatch):
 
     client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(parse=fake_parse)))
     msgs = planner_llm.build_request([analysis], REELS, Brief(topic="루틴"), ["매출.png"])
-    assert sum(1 for b in msgs[0]["content"] if b["type"] == "image") == 6
+    assert sum(1 for b in msgs[0]["content"] if b["type"] == "image") == 3  # 32초 → 1초 간격 장면 시트 3장(12칸씩)
     assert planner_llm._call(client, msgs, "high") is None
     assert planner_llm._call(client, msgs, "high") is good
     kw = calls[-1]

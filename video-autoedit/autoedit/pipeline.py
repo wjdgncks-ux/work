@@ -16,7 +16,7 @@ from .plan import Brief, EditPlan
 from .planner_heuristic import attach_assets, plan_heuristic
 from .platforms import Platform, get_platforms
 from .profiles import Profile, load_profile
-from .project import RENDER_KEYS, Project, finalize
+from .project import RENDER_KEYS, Project, finalize, group_name
 from .report import build_report, issues_for_llm
 from .scorecard import Scorecard
 from .styles import STYLES
@@ -49,6 +49,7 @@ class RunOptions:
     render: dict = field(default_factory=dict)     # font/reframe/assets/bgm… 덮어쓰기
     reference: str | None = None                    # 스타일 카드 id. None=채널 기본 카드, ""=쓰지 않음
     visual_captions: bool = True                    # 말 없는 원본은 화면을 보고 자막(Claude 키 필요)
+    auto_bgm: bool = True                           # 작업 폴더/배경음악에서 분위기에 맞는 곡 자동 선택
 
 
 def llm_available(mode: str) -> bool:
@@ -74,11 +75,14 @@ def _add_tags(plan: EditPlan, tags: list[str]) -> None:
 
 def make_plan(analyses: list[Analysis], platform: Platform, brief: Brief, opts: RunOptions, render_cfg: dict,
               extra_tags: list[str]) -> tuple[EditPlan, Scorecard, list, list, str, Scorecard | None]:
+    from . import bgm, settings
+    ws = settings.workspace()
+    tracks = bgm.tracks(ws) if opts.auto_bgm else []
     plan, planner, messages = None, "규칙 기반(heuristic)", []
     if llm_available(opts.llm):
         from .planner_llm import MODEL, plan_llm
         log(f"  · Claude 기획 요청 ({MODEL}, effort={opts.effort})")
-        plan, messages = plan_llm(analyses, platform, brief, _assets(render_cfg.get("assets")), opts.effort)
+        plan, messages = plan_llm(analyses, platform, brief, _assets(render_cfg.get("assets")), opts.effort, tracks)
         if plan:
             planner = f"Claude ({MODEL})"
     if plan is None:
@@ -86,6 +90,8 @@ def make_plan(analyses: list[Analysis], platform: Platform, brief: Brief, opts: 
         assets = render_cfg.get("assets")
         attach_assets(plan, analyses, Path(assets) if assets else None)
     _add_tags(plan, extra_tags)
+    seed = "|".join(Path(a.path).name for a in analyses)
+    bgm.settle(plan, ws, brief.style, seed, from_llm=bool(messages), enabled=opts.auto_bgm)
     card, timeline, captions = finalize(plan, analyses, platform, brief)
     before = None
     for _ in range(opts.revise if messages else 0):
@@ -98,6 +104,7 @@ def make_plan(analyses: list[Analysis], platform: Platform, brief: Brief, opts: 
             break
         revised.platform, revised.sponsored = platform.key, revised.sponsored or brief.sponsored
         _add_tags(revised, extra_tags)
+        bgm.settle(revised, ws, brief.style, seed, from_llm=True, enabled=opts.auto_bgm)
         r_card, r_tl, r_caps = finalize(revised, analyses, platform, brief)
         if r_card.score >= card.score:
             before = card
@@ -178,7 +185,7 @@ def run_pipeline(videos: list[Path], opts: RunOptions, progress: Progress | None
     done = 0
     results = []
     for group in groups:
-        name = group[0].stem if len(group) == 1 else "merged"
+        name = group_name(group)
         root = out_root / name
         log(f"\n▶ {name}: 분석 중 ({len(group)}개 원본)")
         analyses = []
@@ -219,7 +226,7 @@ def run_pipeline(videos: list[Path], opts: RunOptions, progress: Progress | None
             (pdir / "report.md").write_text(build_report(plan, card, platform, planner, info, before), encoding="utf-8")
             log(f"  ✔ 진단 {card.score}/100 · {pdir / 'report.md'}")
             done += 1
-            results.append({"name": name, "platform": platform.key, "score": card.score, "project": str(pdir),
+            results.append({"name": name, "platform": platform.key, "score": card.score, "project": str(pdir), "planner": planner,
                             "output": info["file"] if info else None, "report": str(pdir / "report.md")})
     progress("완료", 1.0)
     return results

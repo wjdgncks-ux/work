@@ -204,6 +204,8 @@ function renderHome() {
   $("#main").innerHTML = `
     <h1>${H.settings.user_name ? esc(H.settings.user_name) + "님, " : ""}오늘은 어떤 영상을 만들까요?</h1>
     <div class="muted small" style="margin-bottom:16px">작업 폴더: ${esc(H.workspace)}</div>
+    ${H.settings.anthropic ? "" : `<div class="banner" id="noAiBanner"><b>AI 자동 편집이 꺼져 있습니다</b> — Claude 키가 없어 영상을 보지 않고 소리·규칙으로만 편집합니다(장면 고르기·예능 자막·화면 자막·음악 고르기 안 됨).
+      <div style="margin-top:8px"><button data-page="settings">설정·점검에서 Claude 키 넣기</button></div></div>`}
     ${bad.length ? `<div class="banner"><b>먼저 해결해야 할 설치 문제 ${bad.length}개</b> — ${bad.map(c => esc(c.name)).join(", ")}
       <div class="small" style="margin-top:4px">${bad.map(c => "→ " + esc(c.fix)).join("<br>")}</div>
       <button style="margin-top:8px" data-page="settings">설정·점검 열기</button></div>` : ""}
@@ -335,7 +337,7 @@ function pollDrive() {
       if (driveRemoved.has(it.gid)) continue;
       let u = uploads.find(x => x.gid === it.gid);
       if (!u) { u = {gid: it.gid}; uploads.push(u); }
-      Object.assign(u, {name: it.name, progress: it.progress, done: it.done, error: it.error, id: it.id, info: it.info});
+      Object.assign(u, {name: it.name, progress: it.progress, done: it.done, error: it.error, id: it.id, info: it.info, dur: it.duration});
     }
     if (ph && (j.items || []).length) uploads.splice(uploads.indexOf(ph), 1);
     if (j.state === "running") { if (ph && !(j.items || []).length) ph.name = "구글 드라이브 · " + (j.step || "확인 중…"); drawFiles(); return pollDrive(); }
@@ -352,7 +354,7 @@ function upload(u, kind = "video") {
   const x = new XMLHttpRequest();
   x.open("POST", `/app/api/upload?name=${encodeURIComponent(u.name)}&kind=${kind}`);
   x.upload.onprogress = e => { if (e.lengthComputable) { u.progress = e.loaded / e.total; drawFiles(); } };
-  x.onload = () => { try { const j = JSON.parse(x.responseText); if (x.status !== 200) throw new Error(j.error); Object.assign(u, {done: true, progress: 1, id: j.id, info: `${j.duration}초 · ${j.size}`}); } catch (err) { u.error = err.message; } drawFiles(); };
+  x.onload = () => { try { const j = JSON.parse(x.responseText); if (x.status !== 200) throw new Error(j.error); Object.assign(u, {done: true, progress: 1, id: j.id, dur: j.duration, info: `${j.duration}초 · ${j.size}`}); } catch (err) { u.error = err.message; } drawFiles(); };
   x.onerror = () => { u.error = "업로드 실패"; drawFiles(); };
   x.send(u.file);
 }
@@ -365,7 +367,13 @@ function drawFiles() {
     ${u.error ? `<span class="bad">${esc(u.error)}</span>` : u.done ? `<span class="muted">${esc(u.info)}</span>` : `<div class="bar"><i style="width:${Math.round(u.progress * 100)}%"></i></div>`}
     <button class="ghost" data-rrm="${k}" title="빼기">✕</button></div>`).join("");
   const go = $("#goBtn"); if (go) go.disabled = !uploads.some(u => u.done) || [...uploads, ...refUploads].some(u => !u.done && !u.error);
-  const mode = $("#modeRow"); if (mode) mode.style.display = uploads.filter(u => u.done).length > 1 ? "" : "none";
+  const done = uploads.filter(u => u.done), mode = $("#modeRow");
+  if (mode) mode.style.display = done.length > 1 ? "" : "none";
+  // 짧은 클립 여러 개 = 대개 '재밌는 순간만 모아 한 편'. 직접 고르기 전까지는 그쪽을 기본으로(긴 영상이 섞이면 따로)
+  if (cfg && done.length > 1 && !cfg.modeTouched) {
+    cfg.mode = done.every(u => (u.dur || 0) <= 90) ? "merge" : "each";
+    $$("input[name=mode]").forEach(r => r.checked = r.value === cfg.mode);
+  }
 }
 function openNew() {
   const prof = H.profiles.find(p => p.key === cfg.profile);
@@ -374,7 +382,7 @@ function openNew() {
       <div class="gd"><input id="gdUrl" placeholder="구글 드라이브 폴더·파일 공유 링크 붙여넣기"><button id="gdGo">드라이브에서 가져오기</button></div>
       <div class="muted small" style="margin-top:4px">공유 설정이 '링크가 있는 모든 사용자'여야 받을 수 있습니다. 폴더면 안의 영상만 모두 받습니다.</div>
       <div class="row" id="modeRow" style="margin-top:8px"><label class="ck"><input type="radio" name="mode" value="each" ${cfg.mode === "each" ? "checked" : ""}> 영상마다 따로 편집</label>
-        <label class="ck"><input type="radio" name="mode" value="merge" ${cfg.mode === "merge" ? "checked" : ""}> 여러 영상을 한 편으로</label></div></div>
+        <label class="ck"><input type="radio" name="mode" value="merge" ${cfg.mode === "merge" ? "checked" : ""}> 여러 영상을 한 편으로 <span class="muted small">(좋은 장면만 골라 이어 붙임 · 짧은 클립 여러 개면 기본)</span></label></div></div>
     <div class="sec"><div class="t">어느 채널에 올리나요?</div><div class="opts">
       ${H.profiles.map(p => `<div class="opt ${cfg.profile === p.key ? "on" : ""}" data-prof="${esc(p.key)}"><b>${esc(p.name)}</b><small>${esc(p.handle || "")} · ${STYLE_OF[p.style] || ""}</small></div>`).join("")}
       <div class="opt ${!cfg.profile ? "on" : ""}" data-prof=""><b>채널 지정 안 함</b><small>기본 설정</small></div></div>
@@ -392,6 +400,7 @@ function openNew() {
       <input id="topic" placeholder="주제 한 줄 — 예) 아침 루틴 3가지" value="${esc(cfg.topic)}" style="width:100%;margin-bottom:8px">
       <label class="ck"><input type="checkbox" id="spon" ${cfg.sponsored ? "checked" : ""}> 협찬·광고·회사 제품이 나옴 (유료광고 표시)</label>
       <label class="ck"><input type="checkbox" id="caps" ${cfg.captions ? "checked" : ""} ${H.settings.whisper_installed ? "" : "disabled"}> 영상 속 말로 자막 자동 생성 ${H.settings.whisper_installed ? `<span class="muted small">(영상 길이에 따라 몇 분)</span>` : `<span class="muted small">(설치 필요: 설정·점검)</span>`}</label>
+      <label class="ck"><input type="checkbox" id="autobgm" ${cfg.auto_bgm !== false ? "checked" : ""} ${H.bgm_count ? "" : "disabled"}> 배경음악 자동 ${H.bgm_count ? `<span class="muted small">(배경음악 폴더 ${H.bgm_count}곡 중 분위기에 맞는 곡 · 릴스·틱톡 인기 음원을 앱에서 넣을 거면 끄기)</span>` : `<span class="muted small">(작업 폴더의 '배경음악' 폴더에 사용권 있는 음원을 넣으면 사용)</span>`}</label>
       <label class="ck"><input type="checkbox" id="viscap" ${cfg.visual_captions !== false ? "checked" : ""} ${H.settings.anthropic ? "" : "disabled"}> 말 없는 영상은 화면을 보고 분위기에 맞는 자막 달기 ${H.settings.anthropic ? `<span class="muted small">(Claude가 장면을 보고 작성 · 편집기에서 수정)</span>` : `<span class="muted small">(Claude 키 필요: 설정·점검)</span>`}</label>
       <label class="ck"><input type="checkbox" id="auto" ${cfg.auto_render ? "checked" : ""}> 편집기 없이 바로 완성본까지 만들기</label></div>
     <div class="foot"><button id="mCancel">취소</button><button class="accent" id="goBtn" disabled>자동 편집 시작</button></div>`;
@@ -399,7 +408,7 @@ function openNew() {
 }
 function readCfg() {
   const m = document.querySelector("input[name=mode]:checked"); if (m) cfg.mode = m.value;
-  cfg.topic = $("#topic")?.value || ""; cfg.notes = $("#notes")?.value ?? cfg.notes ?? ""; cfg.sponsored = !!$("#spon")?.checked; cfg.captions = !!$("#caps")?.checked; cfg.auto_render = !!$("#auto")?.checked; cfg.visual_captions = $("#viscap") ? $("#viscap").checked : true;
+  cfg.topic = $("#topic")?.value || ""; cfg.notes = $("#notes")?.value ?? cfg.notes ?? ""; cfg.sponsored = !!$("#spon")?.checked; cfg.captions = !!$("#caps")?.checked; cfg.auto_render = !!$("#auto")?.checked; cfg.visual_captions = $("#viscap") ? $("#viscap").checked : true; cfg.auto_bgm = $("#autobgm") ? $("#autobgm").checked : true;
   cfg.platforms = $$("[data-plat]").filter(c => c.checked).map(c => c.dataset.plat);
   readRef();
 }
@@ -467,7 +476,7 @@ function slimLabel() {
   b.disabled = n <= 0;
 }
 const human = n => n < 1048576 ? `${Math.round(n / 1024)}KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)}MB` : `${(n / 1073741824).toFixed(1)}GB`;
-$("#modal").addEventListener("change", e => { if (e.target.id === "slimOrig") slimLabel(); });
+$("#modal").addEventListener("change", e => { if (e.target.id === "slimOrig") slimLabel(); if (e.target.name === "mode" && cfg) { cfg.modeTouched = true; cfg.mode = e.target.value; } });
 $("#modal").addEventListener("keydown", e => { if (e.target.id === "gdUrl" && e.key === "Enter") { e.preventDefault(); startDrive(e.target.value.trim()); } });
 $("#modal").addEventListener("click", async e => {
   const t = e.target; if (!managing || !mUsage) return;
@@ -557,6 +566,7 @@ async function showProgress() {
     if (j.projects.length === 1) return openProject(j.projects[0]);
     $("#mbox").innerHTML = `<h3><span>편집 완료 · ${j.projects.length}개 프로젝트</span><button class="ghost" id="mClose">✕</button></h3>
       <div class="muted">${j.elapsed}초 걸렸습니다. 열 프로젝트를 고르세요.</div>
+      ${j.ai === false ? `<div class="banner" style="margin-top:8px">AI 기획 없이 규칙 기반으로 편집했습니다(Claude 키 없음 또는 요청 실패). 결과가 단순할 수 있습니다 — 검은 창의 안내를 확인하세요.</div>` : ""}
       <div class="sec">${j.projects.map(id => `<div class="f files" style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><span style="flex:1">${esc(id)}</span><button class="accent" data-openp="${esc(id)}">편집기 열기</button></div>`).join("")}</div>`;
   }
 }

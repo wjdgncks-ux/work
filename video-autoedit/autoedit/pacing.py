@@ -45,14 +45,19 @@ def sanitize(plan: EditPlan, analyses: list[Analysis], *, keep_order: bool = Fal
         lst[:] = [x for x in lst if 0 <= x.source < n and 0 <= x.t <= analyses[x.source].duration]
     # 자료화면끼리 겹치면 하나만: 실제 자료(asset)를 텍스트 카드보다 우선
     kept: list = []
+    fun: list = []  # 예능 자막은 다른 층(화면 위쪽)이라 카드·자료와 겹쳐도 된다. 예능 자막끼리만 겹치지 않게
     for ins in sorted(plan.inserts, key=lambda i: (i.source, i.t)):
+        if ins.kind == "fun_text":
+            if ins.text.strip() and not (fun and fun[-1].source == ins.source and ins.t < fun[-1].t + fun[-1].duration):
+                fun.append(ins)
+            continue
         prev = kept[-1] if kept else None
         if prev and prev.source == ins.source and ins.t < prev.t + prev.duration:
             if ins.kind == "asset" and prev.kind == "text_card":
                 kept[-1] = ins
             continue
         kept.append(ins)
-    plan.inserts = kept
+    plan.inserts = sorted(kept + fun, key=lambda i: (i.source, i.t))
     plan.sfx.sort(key=lambda s: (s.source, s.t))
     thinned = []
     for s in plan.sfx:
