@@ -310,6 +310,12 @@ async function layout(page, where, selectors) {
     const ftext = await page.textContent("#files");
     check("드라이브: 폴더 안 영상만 받아 목록에 길이·크기 표시(문서는 건너뜀)", /초 · \d+x\d+/.test(ftext) && !/메모/.test(ftext), ftext.slice(0, 80));
     check("드라이브: 건너뛴 파일 수 안내", (await page.textContent("#toast")).includes("1개는 건너뜀"));
+    await page.waitForFunction(() => /20260519_221701\.mp4/.test(document.querySelector("#files")?.textContent || "") && !document.querySelector("#goBtn").disabled, null, { timeout: 20000 });
+    check("여러 파일: '하나의 영상으로 합치기'가 크게 보이고 기본 선택", await page.isVisible("#modeRow") && await page.$('[data-mode="merge"].on'));
+    check("여러 파일: 시작 버튼에 '1편으로 합치기' 표시", (await page.textContent("#goBtn")).includes("1편으로 합치기"), await page.textContent("#goBtn"));
+    await page.click('[data-mode="each"]');
+    check("여러 파일: '파일마다 따로'로 바꾸면 버튼에 '2편 따로'", (await page.textContent("#goBtn")).includes("2편 따로") && await page.$('[data-mode="each"].on'));
+    await page.click('[data-mode="merge"]');
     await layout(page, "드라이브 가져오기", ["#gdUrl", "#gdGo", "#goBtn"]);
     await shot(page, "10-drive");
     await page.click("#mClose");

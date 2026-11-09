@@ -127,6 +127,7 @@ def main() -> None:
     memo = root / "media" / "메모.txt"
     memo.write_text("촬영 메모", encoding="utf-8")
     fake_gdown.FOLDERS["1E2eFolderAbcdef"] = [("1e2eaaaaaaaaaa", "촬영본/20260519_221634.mp4", root / "media" / "base.mp4"),
+                                              ("1e2ecccccccccc", "촬영본/20260519_221701.mp4", root / "media" / "base.mp4"),
                                               ("1e2ebbbbbbbbbb", "메모.txt", memo)]
     from autoedit import housekeeping  # 남은 공간: root/disk_gb 파일이 있으면 그 값(GB), 없으면 넉넉하게
 
