@@ -51,16 +51,43 @@ class Transcript:
         return cls(d.get("language", "ko"), sentences, d.get("kind", "speech"))
 
 
+GPU_ERRORS = ("cublas", "cudnn", "cudart", "cuda", "nvrtc", "cufft", "curand")
+
+
+def _gpu_problem(exc: Exception) -> bool:
+    """그래픽카드(CUDA) 구성요소가 없거나 안 맞아서 난 오류인가."""
+    msg = str(exc).lower()
+    return any(k in msg for k in GPU_ERRORS)
+
+
+def _device() -> str:
+    """음성 인식 장치. auto=그래픽카드가 있으면 GPU, 한 번 GPU가 실패한 PC는 'cpu'로 기억해 다음부터 바로 CPU."""
+    from . import settings
+    return settings.get("whisper_device") or "auto"
+
+
+def _remember_cpu() -> None:
+    from . import settings
+    settings.put(whisper_device="cpu")
+
+
+def _recognize(model, audio, language: str) -> tuple[list[Sentence], str]:
+    segments, info = model.transcribe(
+        audio, language=language, word_timestamps=True, vad_filter=True,
+        vad_parameters={"min_silence_duration_ms": 300},
+    )
+    sentences = []
+    for seg in segments:  # 실제 인식은 여기서 진행된다(지연 실행) — GPU 라이브러리 오류도 여기서 난다
+        words = [Word(round(w.start, 3), round(w.end, 3), w.word.strip()) for w in (seg.words or []) if w.word.strip()]
+        sentences.append(Sentence(round(seg.start, 3), round(seg.end, 3), seg.text.strip(), words))
+    return sentences, info.language or language
+
+
 def transcribe(path: str, model_size: str = "small", language: str = "ko") -> Transcript | None:
     try:
         from faster_whisper import WhisperModel
     except ImportError:
         print("  · faster-whisper 미설치 → 자막/대사 기반 기획 없이 진행 (pip install faster-whisper)", file=sys.stderr)
-        return None
-    try:
-        model = WhisperModel(model_size, device="auto", compute_type="int8")
-    except Exception as exc:  # 모델 다운로드 실패 등
-        print(f"  · Whisper 모델 로드 실패({exc}) → 음성 인식 생략", file=sys.stderr)
         return None
     # 소리는 ffmpeg로 직접 풀어 넘긴다. 파일 경로를 주면 faster-whisper가 PyAV로 여는데, PyAV 15 이상에서
     # faster-whisper 1.2.1까지의 av.open(metadata_errors=...) 호출이 실패한다(신고: "unexpected keyword argument
@@ -68,16 +95,30 @@ def transcribe(path: str, model_size: str = "small", language: str = "ko") -> Tr
     audio = load_audio(path, 16000)
     if audio.size == 0:
         return Transcript(language, [])  # 소리 없는 영상
-    sentences = []
-    try:
-        segments, info = model.transcribe(
-            audio, language=language, word_timestamps=True, vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 300},
-        )
-        for seg in segments:  # 실제 인식은 여기서 진행된다(지연 실행)
-            words = [Word(round(w.start, 3), round(w.end, 3), w.word.strip()) for w in (seg.words or []) if w.word.strip()]
-            sentences.append(Sentence(round(seg.start, 3), round(seg.end, 3), seg.text.strip(), words))
-    except Exception as exc:
-        raise RuntimeError(f"음성 인식(자동 캡션) 실패: {exc} — 급하면 설정·점검에서 '자동 캡션 정확도'를 '사용 안 함'으로 "
-                           "바꾸면 자막 없이 편집할 수 있습니다. 프로그램을 업데이트한 뒤 다시 시도하세요") from exc
-    return Transcript(info.language or language, sentences)
+    # 엔비디아 그래픽카드가 있으면 auto는 GPU(CUDA)를 고르는데, CUDA 12 구성요소(cuBLAS·cuDNN)가 PC에 없으면
+    # 인식 도중 "cublas64_12.dll is not found"로 실패한다(신고). 그때는 CPU로 다시 하고, 이 PC는 CPU로 기억한다.
+    device = _device()
+    for attempt in ("first", "cpu"):
+        try:
+            model = WhisperModel(model_size, device=device, compute_type="int8")
+        except Exception as exc:
+            if device != "cpu" and _gpu_problem(exc):
+                print("  · 그래픽카드(CUDA) 구성요소가 없어 CPU로 음성 인식합니다", file=sys.stderr)
+                _remember_cpu()
+                device = "cpu"
+                continue
+            print(f"  · Whisper 모델 로드 실패({exc}) → 음성 인식 생략", file=sys.stderr)  # 모델 다운로드 실패 등
+            return None
+        try:
+            sentences, lang = _recognize(model, audio, language)
+            return Transcript(lang, sentences)
+        except Exception as exc:
+            if attempt == "first" and device != "cpu" and _gpu_problem(exc):
+                print("  · 그래픽카드(CUDA) 구성요소가 없어 CPU로 다시 음성 인식합니다(이 PC는 다음부터 바로 CPU)",
+                      file=sys.stderr)
+                _remember_cpu()
+                device = "cpu"
+                continue
+            raise RuntimeError(f"음성 인식(자동 캡션) 실패: {exc} — 급하면 설정·점검에서 '자동 캡션 정확도'를 '사용 안 함'으로 "
+                               "바꾸면 자막 없이 편집할 수 있습니다. 프로그램을 업데이트한 뒤 다시 시도하세요") from exc
+    return None

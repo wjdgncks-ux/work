@@ -157,3 +157,49 @@ def test_real_faster_whisper_audio_path_is_pyav_free():
     lines = [x.strip() for x in src.splitlines()]
     i = lines.index("audio = decode_audio(audio, sampling_rate=sampling_rate)")
     assert lines[i - 1] == "if not isinstance(audio, np.ndarray):"  # 배열이면 PyAV 디코딩을 건너뜀
+
+
+def test_transcribe_falls_back_to_cpu_without_cuda_libs(tmp_path, monkeypatch):
+    """엔비디아 그래픽카드는 있는데 CUDA 12 구성요소가 없는 PC(실사용 신고: cublas64_12.dll is not found):
+    인식 도중 실패하면 CPU로 다시 하고, 다음부터는 바로 CPU를 쓴다."""
+    import types
+
+    from autoedit import settings
+    from autoedit import transcribe as tr
+    monkeypatch.setenv("AUTOEDIT_HOME", str(tmp_path / "home"))
+    devices = []
+
+    class GpuPc:
+        def __init__(self, size, device, compute_type):
+            devices.append(device)
+            self.device = device
+
+        def transcribe(self, audio, **kw):
+            def segs():
+                if self.device != "cpu":  # 실제처럼 첫 조각을 만들 때(지연 실행) 라이브러리를 못 찾음
+                    raise RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
+                w = types.SimpleNamespace(start=0.1, end=0.5, word=" 냥")
+                yield types.SimpleNamespace(start=0.1, end=0.5, text=" 냥", words=[w])
+            return segs(), types.SimpleNamespace(language="ko")
+    fake = types.ModuleType("faster_whisper")
+    fake.WhisperModel = GpuPc
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake)
+    video = make_video(tmp_path / "고양이.mp4", seconds=2)
+    t = tr.transcribe(str(video), "small")
+    assert devices == ["auto", "cpu"] and t.sentences[0].text == "냥"
+    assert settings.get("whisper_device") == "cpu"
+    devices.clear()
+    tr.transcribe(str(video), "small")
+    assert devices == ["cpu"]  # 기억해 두고 바로 CPU
+
+    settings.put(whisper_device="auto")
+    devices.clear()
+
+    class NoDriver(GpuPc):
+        def __init__(self, size, device, compute_type):
+            if device != "cpu":
+                devices.append(device)
+                raise RuntimeError("CUDA failed with error CUDA driver version is insufficient for CUDA runtime version")
+            super().__init__(size, device, compute_type)
+    fake.WhisperModel = NoDriver
+    assert tr.transcribe(str(video), "small").sentences and devices == ["auto", "cpu"]
